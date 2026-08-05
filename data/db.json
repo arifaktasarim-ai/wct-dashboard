@@ -1,0 +1,78 @@
+{
+  "guvenlik": {},
+  "kalite": {},
+  "teslimat": {},
+  "verimlilik": {},
+  "kalibrasyon": {},
+  "aksiyonlar": [],
+  "personel": [
+    {
+      "id": "1785652635038",
+      "ad": "Arif AKTAŞ",
+      "departman": "Hammadde Laboratuvarı",
+      "unvan": "Kalite Kontrol Uzman Teknisyeni",
+      "fotoBase64": "",
+      "sorumluluklar": []
+    }
+  ],
+  "toplantiNotlari": [
+    {
+      "id": "1785653850877",
+      "tip": "gorev",
+      "personelId": "1785652635038",
+      "baslik": "Bİlgilendirme",
+      "not": "",
+      "bitisTarihi": "2026-08-01",
+      "durum": "Tamamlandı",
+      "olusturmaTarihi": "2026-08-02T06:57:30.877Z",
+      "tarih": "",
+      "sonBildirimTarihi": "2026-08-01",
+      "sonBildirimAsama": "gecti"
+    }
+  ],
+  "katilim": {},
+  "duyurular": {
+    "opl": "",
+    "seeCardKarekod": "",
+    "kalibrasyonTablosu": "",
+    "diger1": "",
+    "diger2": "",
+    "diger3": ""
+  },
+  "sktTakip": [],
+  "ayarlar": {
+    "firmaAdi": "",
+    "bolumAdi": "",
+    "logoBase64": "",
+    "accentColor": "#1b2a4a",
+    "bgColor": "#f2f4f7",
+    "bgImageBase64": "",
+    "pageWidth": "genis",
+    "radius": "normal",
+    "shadows": true,
+    "compact": false,
+    "categoryColors": {
+      "guvenlik": "#2563eb",
+      "kalite": "#7c3aed",
+      "teslimat": "#0d9488",
+      "verimlilik": "#ea580c",
+      "kalibrasyon": "#475569"
+    },
+    "gunlukSiralama": [
+      "guvenlik",
+      "kalite",
+      "teslimat",
+      "verimlilik",
+      "kalibrasyon"
+    ],
+    "ozetUstSiralama": [
+      "notlar",
+      "personel"
+    ],
+    "ozetKartSiralama": [
+      "kaza",
+      "skt",
+      "aksiyonlar"
+    ]
+  }
+}
