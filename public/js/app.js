@@ -195,7 +195,92 @@ let state = {
 
 // ================== BASLANGIC ==================
 
+let currentUser = null;
+
 document.addEventListener('DOMContentLoaded', async () => {
+  initLoginForm();
+  const user = await checkAuthStatus();
+  if (user) {
+    showAppAfterLogin(user);
+  } else {
+    showLoginScreen();
+  }
+});
+
+async function checkAuthStatus() {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    return null;
+  }
+}
+
+function showLoginScreen() {
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.getElementById('appRoot').style.display = 'none';
+}
+
+function showAppAfterLogin(user) {
+  currentUser = user;
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('appRoot').style.display = 'block';
+  applyRolBasedUI();
+  initAppAfterLogin();
+}
+
+function initLoginForm() {
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (err) { /* yine de devam */ }
+      location.reload();
+    });
+  }
+  const form = document.getElementById('loginForm');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const kullaniciAdi = document.getElementById('loginKullaniciAdi').value.trim();
+    const sifre = document.getElementById('loginSifre').value;
+    const hataBox = document.getElementById('loginHata');
+    const btn = document.getElementById('loginBtn');
+    hataBox.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Giriş yapılıyor…';
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kullaniciAdi, sifre })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Giriş başarısız.');
+      showAppAfterLogin(data.user);
+    } catch (err) {
+      hataBox.textContent = '⚠ ' + err.message;
+      hataBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Giriş Yap';
+    }
+  });
+}
+
+function applyRolBasedUI() {
+  const rol = currentUser ? currentUser.rol : 'izleyici';
+  document.body.dataset.userRole = rol;
+  // izleyici (goruntuleme) rolundeki kullanicilar hicbir yazma/degistirme
+  // arayuzunu gormemeli; CSS bu data-user-role="izleyici" ozniteligine gore
+  // ilgili butonlari/formlari gizler (bkz. style.css)
+  const userNameEl = document.getElementById('currentUserName');
+  if (userNameEl) userNameEl.textContent = currentUser ? `${currentUser.ad} (${ROL_ETIKET[rol] || rol})` : '';
+}
+
+const ROL_ETIKET = { admin: 'Yönetici', kidemli: 'Kıdemli', yazici: 'Yazma Yetkili', izleyici: 'Görüntüleme' };
+
+async function initAppAfterLogin() {
   // KRITIK: her init fonksiyonu ayri try/catch icinde cagrilir. Eskiden bu
   // cagrilar sirayla, korumasiz yapiliyordu; herhangi biri hata firlatirsa
   // (orn. bir elemani bulamazsa) kendisinden SONRAKI TUM init cagrilari hic
@@ -236,7 +321,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   try { renderOzet(); } catch (err) { console.error('[BASLANGIC HATASI] renderOzet:', err); }
   try { checkSktWarningsAndPopup(); } catch (err) { console.error('[BASLANGIC HATASI] checkSktWarningsAndPopup:', err); }
   try { await checkGorevlerimVeUyar(); } catch (err) { console.error('[BASLANGIC HATASI] checkGorevlerimVeUyar:', err); }
-});
+}
 
 async function showVersion() {
   try {
