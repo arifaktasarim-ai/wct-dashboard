@@ -190,7 +190,8 @@ let state = {
   ayarlar: { bolumAdi: '' },
   editingActionId: null,
   editingPersonId: null,
-  personMonthlyBreakdown: {}
+  personMonthlyBreakdown: {},
+  allCategoryDataRaw: { guvenlik: {}, kalite: {}, verimlilik: {} }
 };
 
 // ================== BASLANGIC ==================
@@ -642,6 +643,88 @@ function buildPersonMonthlyBreakdown(allCategoryData) {
 
   return map;
 }
+
+// Bir personelin ASD / Sapma / Fazla Mesai kayitlarini, girildikleri gun ve
+// (varsa) aciklamalariyla ("Not" alani) birlikte, en yeniden en eskiye dogru
+// sirali olarak dondurur. state.allCategoryDataRaw (renderOzet icinde
+// doldurulur) uzerinden calisir; her gunun tum ay verisini tarar.
+function buildPersonKayitDetaylari(personId) {
+  const raw = state.allCategoryDataRaw || {};
+  const asdList = [];
+  const sapmaList = [];
+  const mesaiList = [];
+  const kazaList = [];
+  const ramakKalaList = [];
+  const seeCardList = [];
+  const izinliList = [];
+
+  Object.entries(raw.guvenlik || {}).forEach(([ym, days]) => {
+    Object.entries(days || {}).forEach(([day, dayData]) => {
+      const tarih = `${ym}-${String(day).padStart(2, '0')}`;
+      (dayData.minor || []).forEach(it => {
+        if (it.personelId === personId) kazaList.push({ tarih, not: it.not || '', tur: 'Minör' });
+      });
+      (dayData.majör || []).forEach(it => {
+        if (it.personelId === personId) kazaList.push({ tarih, not: it.not || '', tur: 'Majör' });
+      });
+      (dayData.ramakKala || []).forEach(it => {
+        if (it.personelId === personId) ramakKalaList.push({ tarih, not: it.not || '' });
+      });
+      (dayData.seeCard || []).forEach(it => {
+        if (it.personelId === personId) seeCardList.push({ tarih, not: it.not || '' });
+      });
+    });
+  });
+
+  Object.entries(raw.kalite || {}).forEach(([ym, days]) => {
+    Object.entries(days || {}).forEach(([day, dayData]) => {
+      const tarih = `${ym}-${String(day).padStart(2, '0')}`;
+      (dayData.asd || []).forEach(it => {
+        if (it.personelId === personId) asdList.push({ tarih, not: it.not || '' });
+      });
+      (dayData.sapma || []).forEach(it => {
+        if (it.personelId === personId) sapmaList.push({ tarih, not: it.not || '' });
+      });
+    });
+  });
+
+  Object.entries(raw.verimlilik || {}).forEach(([ym, days]) => {
+    Object.entries(days || {}).forEach(([day, dayData]) => {
+      const tarih = `${ym}-${String(day).padStart(2, '0')}`;
+      (dayData.fazlaMesai || []).forEach(it => {
+        if (it.personelId === personId) mesaiList.push({ tarih, not: it.not || '', saat: Number(it.saat || 0) });
+      });
+      (dayData.izinliPersonel || []).forEach(it => {
+        if (it.personelId === personId) izinliList.push({ tarih, not: it.not || '' });
+      });
+    });
+  });
+
+  const tarihAzalan = (a, b) => b.tarih.localeCompare(a.tarih);
+  [asdList, sapmaList, mesaiList, kazaList, ramakKalaList, seeCardList, izinliList].forEach(l => l.sort(tarihAzalan));
+
+  return { asdList, sapmaList, mesaiList, kazaList, ramakKalaList, seeCardList, izinliList };
+}
+
+// buildPersonKayitDetaylari sonucundaki bir listeyi aciklamali kayit
+// satirlari halinde HTML'e cevirir.
+function kayitDetayListesiHtml(list, opts) {
+  opts = opts || {};
+  if (!list || list.length === 0) {
+    return `<p style="color:#6b7280;font-size:12.5px;margin:4px 0;">Kayıt yok.</p>`;
+  }
+  return `<ul class="person-kayit-list">
+    ${list.map(r => `
+      <li class="person-kayit-item">
+        <span class="person-kayit-tarih">${formatDateSimpleTR(r.tarih)}</span>
+        ${opts.withTur ? `<span class="person-kayit-tur">${escapeHtml(r.tur || '')}</span>` : ''}
+        ${opts.withSaat ? `<span class="person-kayit-saat">${r.saat || 0} saat</span>` : ''}
+        <span class="person-kayit-not">${r.not ? escapeHtml(r.not) : '<em style="color:#9ca3af;">Açıklama girilmemiş</em>'}</span>
+      </li>
+    `).join('')}
+  </ul>`;
+}
+
 
 // personMonthlyBreakdown map'inden bir personelin belirli bir yila (yearFilter)
 // veya tum zamanlara (yearFilter=null) ait toplamini ve ay bazli kirilimini dondurur.
@@ -1461,6 +1544,9 @@ async function renderOzet() {
   const monthlyBreakdown = buildPersonMonthlyBreakdown({ guvenlik: allGuvenlik, kalite: allKalite, verimlilik: allVerimlilik });
   state.personMonthlyBreakdown = monthlyBreakdown;
   state.katilimMonthlyBreakdown = buildKatilimMonthlyBreakdown(allKatilim);
+  // Personel detay kartinda ASD/Sapma/Fazla Mesai kayitlarini aciklamalariyla
+  // birlikte listeleyebilmek icin ham (gun bazli) veriyi de sakliyoruz.
+  state.allCategoryDataRaw = { guvenlik: allGuvenlik, kalite: allKalite, verimlilik: allVerimlilik };
 
   const totalDays = daysInMonth(state.year, state.month);
 
@@ -2558,6 +2644,7 @@ function openPersonDetailModal(personId) {
   const { totals: buYil } = summarizePersonBreakdown(personId, String(state.year));
   const katilimTumZamanlar = summarizeKatilimBreakdown(personId, null);
   const katilimBuYil = summarizeKatilimBreakdown(personId, String(state.year));
+  const { asdList, sapmaList, mesaiList, kazaList, ramakKalaList, seeCardList, izinliList } = buildPersonKayitDetaylari(personId);
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -2625,6 +2712,36 @@ function openPersonDetailModal(personId) {
 
         <div class="modal-field-group-label" style="margin-top:6px;">Ay Bazlı Kırılım</div>
         ${monthlyTableHtml}
+
+        <div class="modal-field-group-label" style="margin-top:14px;">Açıklamalı Kayıtlar</div>
+        <details class="ozet-details person-kayit-details" open>
+          <summary>Açılan ASD Kayıtları (${asdList.length})</summary>
+          <div class="ozet-details-body">${kayitDetayListesiHtml(asdList)}</div>
+        </details>
+        <details class="ozet-details person-kayit-details">
+          <summary>Açılan Sapma Kayıtları (${sapmaList.length})</summary>
+          <div class="ozet-details-body">${kayitDetayListesiHtml(sapmaList)}</div>
+        </details>
+        <details class="ozet-details person-kayit-details">
+          <summary>Fazla Mesai Kayıtları (${mesaiList.length})</summary>
+          <div class="ozet-details-body">${kayitDetayListesiHtml(mesaiList, { withSaat: true })}</div>
+        </details>
+        <details class="ozet-details person-kayit-details">
+          <summary>Kaza Kayıtları – Minör + Majör (${kazaList.length})</summary>
+          <div class="ozet-details-body">${kayitDetayListesiHtml(kazaList, { withTur: true })}</div>
+        </details>
+        <details class="ozet-details person-kayit-details">
+          <summary>Ramak Kala Kayıtları (${ramakKalaList.length})</summary>
+          <div class="ozet-details-body">${kayitDetayListesiHtml(ramakKalaList)}</div>
+        </details>
+        <details class="ozet-details person-kayit-details">
+          <summary>See Card Kayıtları (${seeCardList.length})</summary>
+          <div class="ozet-details-body">${kayitDetayListesiHtml(seeCardList)}</div>
+        </details>
+        <details class="ozet-details person-kayit-details">
+          <summary>Eksik/İzinli Personel Kayıtları (${izinliList.length})</summary>
+          <div class="ozet-details-body">${kayitDetayListesiHtml(izinliList)}</div>
+        </details>
       </div>
       <div class="modal-footer">
         <span></span>

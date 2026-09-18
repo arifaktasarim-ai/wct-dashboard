@@ -1,0 +1,89 @@
+{
+  "guvenlik": {},
+  "kalite": {},
+  "teslimat": {},
+  "verimlilik": {},
+  "kalibrasyon": {},
+  "aksiyonlar": [],
+  "personel": [
+    {
+      "id": "1789157106501",
+      "ad": "Admin (İlk Kurulum)",
+      "departman": "",
+      "unvan": "Bölüm Sorumlusu",
+      "fotoBase64": "",
+      "sorumluluklar": [],
+      "kullaniciAdi": "admin",
+      "rol": "admin",
+      "sifreSalt": "3de383272926f3cf5514ef4c3e9b923b",
+      "sifreHash": "0d5bfaaee6b588575d37af387a626fcbc7f0343af1da03c966e21f642af1e952a0c009b136e9c941f38d91a810cd657d6a95bc1a02ea39e775114a81c7830477"
+    }
+  ],
+  "toplantiNotlari": [],
+  "katilim": {},
+  "duyurular": {
+    "opl": "",
+    "seeCardKarekod": "",
+    "kalibrasyonTablosu": "",
+    "diger1": "",
+    "diger2": "",
+    "diger3": ""
+  },
+  "sktTakip": [],
+  "ayarlar": {
+    "firmaAdi": "",
+    "bolumAdi": "",
+    "logoBase64": "",
+    "accentColor": "#1b2a4a",
+    "bgColor": "#f2f4f7",
+    "bgImageBase64": "",
+    "pageWidth": "genis",
+    "radius": "normal",
+    "shadows": true,
+    "compact": false,
+    "categoryColors": {
+      "guvenlik": "#2563eb",
+      "kalite": "#7c3aed",
+      "teslimat": "#0d9488",
+      "verimlilik": "#ea580c",
+      "kalibrasyon": "#475569"
+    },
+    "gunlukSiralama": [
+      "guvenlik",
+      "kalite",
+      "teslimat",
+      "verimlilik",
+      "kalibrasyon"
+    ],
+    "ozetUstSiralama": [
+      "notlar",
+      "personel"
+    ],
+    "ozetKartSiralama": [
+      "kaza",
+      "skt",
+      "aksiyonlar"
+    ]
+  },
+  "sessions": [
+    {
+      "token": "ea8706c7f20d09932b938f6cbd253031d90aced37ff0f425b42cb7ef54855aa5",
+      "personelId": "1789157106501",
+      "createdAt": "2026-09-11T20:06:12.451Z"
+    }
+  ],
+  "auditLog": [],
+  "departmanlar": [
+    "Hammadde Laboratuvarı"
+  ],
+  "unvanlar": [
+    "Bölüm Sorumlusu",
+    "Kalite Kontrol Uzmanı / Vardiya Sorumlusu",
+    "Kalite Kontrol Kıdemli Analisti",
+    "Kalite Kontrol Uzman Analisti",
+    "Kalite Kontrol Analisti",
+    "Kalite Kontrol Uzman Teknisyeni",
+    "Kalite Kontrol Teknisyeni"
+  ],
+  "asdSapmaKayitlari": []
+}

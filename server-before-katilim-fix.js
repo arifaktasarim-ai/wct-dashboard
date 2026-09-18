@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-18-personkayit2';
+const APP_VERSION = 'v2026-09-18-roles3';
 
 app.get('/api/version', (req, res) => {
   res.json({
