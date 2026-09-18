@@ -2734,7 +2734,7 @@ function openPersonDetailModal(personId) {
           <summary>Ramak Kala Kayıtları (${ramakKalaList.length})</summary>
           <div class="ozet-details-body">${kayitDetayListesiHtml(ramakKalaList)}</div>
         </details>
-        <details class="ozet-details person-kayit-details">
+        <details class="ozet-details person-kayit-details" ${seeCardList.length > 0 ? 'open' : ''}>
           <summary>See Card Kayıtları (${seeCardList.length})</summary>
           <div class="ozet-details-body">${kayitDetayListesiHtml(seeCardList)}</div>
         </details>
