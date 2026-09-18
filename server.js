@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -256,13 +256,13 @@ function defaultDB() {
     auditLog: [],
 
     departmanlar: [
-      'Hammadde Laboratuvarı'
+      'Hammadde LaboratuvarÄ±'
     ],
 
     unvanlar: [
-      'Bölüm Sorumlusu',
-      'Kalite Kontrol Uzmanı / Vardiya Sorumlusu',
-      'Kalite Kontrol Kıdemli Analisti',
+      'BÃ¶lÃ¼m Sorumlusu',
+      'Kalite Kontrol UzmanÄ± / Vardiya Sorumlusu',
+      'Kalite Kontrol KÄ±demli Analisti',
       'Kalite Kontrol Uzman Analisti',
       'Kalite Kontrol Analisti',
       'Kalite Kontrol Uzman Teknisyeni',
@@ -509,7 +509,7 @@ app.post('/api/auth/login', async (req, res) => {
       )
     ) {
       return res.status(401).json({
-        error: 'Kullanıcı adı veya şifre hatalı.'
+        error: 'KullanÄ±cÄ± adÄ± veya ÅŸifre hatalÄ±.'
       });
     }
 
@@ -545,7 +545,7 @@ app.post('/api/auth/login', async (req, res) => {
     console.error('LOGIN HATASI:', err);
 
     res.status(500).json({
-      error: 'Sunucu hatası oluştu.'
+      error: 'Sunucu hatasÄ± oluÅŸtu.'
     });
   }
 });
@@ -580,7 +580,7 @@ app.post('/api/auth/logout', async (req, res) => {
     console.error('LOGOUT HATASI:', err);
 
     res.status(500).json({
-      error: 'Sunucu hatası oluştu.'
+      error: 'Sunucu hatasÄ± oluÅŸtu.'
     });
   }
 });
@@ -592,7 +592,7 @@ app.post('/api/auth/logout', async (req, res) => {
 app.get('/api/auth/me', (req, res) => {
   if (!req.currentUser) {
     return res.status(401).json({
-      error: 'Giriş yapılmamış'
+      error: 'GiriÅŸ yapÄ±lmamÄ±ÅŸ'
     });
   }
 
@@ -620,7 +620,7 @@ app.use('/api', (req, res, next) => {
 
   if (!req.currentUser) {
     return res.status(401).json({
-      error: 'Giriş yapmanız gerekiyor.'
+      error: 'GiriÅŸ yapmanÄ±z gerekiyor.'
     });
   }
 
@@ -638,7 +638,7 @@ function requireRole(minRol) {
       ROL_SEVIYE[minRol]
     ) {
       return res.status(403).json({
-        error: 'Bu işlem için yetkiniz yok.'
+        error: 'Bu iÅŸlem iÃ§in yetkiniz yok.'
       });
     }
 
@@ -746,7 +746,7 @@ app.post(
       ) {
         return res.status(403).json({
           error:
-            'Bu gün zaten kaydedilmiş ve kilitlenmiş. Değiştirmek için admin yetkisi gerekir.'
+            'Bu gÃ¼n zaten kaydedilmiÅŸ ve kilitlenmiÅŸ. DeÄŸiÅŸtirmek iÃ§in admin yetkisi gerekir.'
         });
       }
 
@@ -768,7 +768,7 @@ app.post(
         db,
         req,
         `${category} verisi kaydedildi`,
-        `${yearMonth} ayı, ${day}. gün`
+        `${yearMonth} ayÄ±, ${day}. gÃ¼n`
       );
 
       await writeDB(db);
@@ -821,7 +821,7 @@ app.delete(
       ) {
         return res.status(403).json({
           error:
-            'Bu gün zaten kaydedilmiş ve kilitlenmiş. Silmek için admin yetkisi gerekir.'
+            'Bu gÃ¼n zaten kaydedilmiÅŸ ve kilitlenmiÅŸ. Silmek iÃ§in admin yetkisi gerekir.'
         });
       }
 
@@ -832,8 +832,8 @@ app.delete(
       auditEkle(
         db,
         req,
-        `${category} günü temizlendi`,
-        `${yearMonth} ayı, ${day}. gün`
+        `${category} gÃ¼nÃ¼ temizlendi`,
+        `${yearMonth} ayÄ±, ${day}. gÃ¼n`
       );
 
       await writeDB(db);
@@ -910,14 +910,14 @@ app.post(
         ) {
           return res.status(400).json({
             error:
-              'Bu kullanıcı adı zaten kullanılıyor.'
+              'Bu kullanÄ±cÄ± adÄ± zaten kullanÄ±lÄ±yor.'
           });
         }
 
         if (!req.body.sifre) {
           return res.status(400).json({
             error:
-              'Kullanıcı adı belirttiyseniz bir şifre de girmelisiniz.'
+              'KullanÄ±cÄ± adÄ± belirttiyseniz bir ÅŸifre de girmelisiniz.'
           });
         }
 
@@ -943,7 +943,7 @@ app.post(
         newPerson.ad +
           (
             newPerson.kullaniciAdi
-              ? ` (kullanıcı: ${newPerson.kullaniciAdi}, rol: ${newPerson.rol})`
+              ? ` (kullanÄ±cÄ±: ${newPerson.kullaniciAdi}, rol: ${newPerson.rol})`
               : ''
           )
       );
@@ -1011,7 +1011,7 @@ app.put(
         if (cakisan) {
           return res.status(400).json({
             error:
-              'Bu kullanıcı adı zaten kullanılıyor.'
+              'Bu kullanÄ±cÄ± adÄ± zaten kullanÄ±lÄ±yor.'
           });
         }
       }
@@ -1052,7 +1052,7 @@ app.put(
             if (digerAdminSayisi === 0) {
               return res.status(400).json({
                 error:
-                  'Sistemde en az bir admin kalmalı. Bu kişinin rolünü değiştirmeden önce başka bir admin atayın.'
+                  'Sistemde en az bir admin kalmalÄ±. Bu kiÅŸinin rolÃ¼nÃ¼ deÄŸiÅŸtirmeden Ã¶nce baÅŸka bir admin atayÄ±n.'
               });
             }
           }
@@ -1067,7 +1067,7 @@ app.put(
       auditEkle(
         db,
         req,
-        'Personel güncellendi',
+        'Personel gÃ¼ncellendi',
         db.personel[idx].ad
       );
 
@@ -1087,7 +1087,7 @@ app.put(
       );
 
       res.status(500).json({
-        error: 'Personel güncellenemedi.'
+        error: 'Personel gÃ¼ncellenemedi.'
       });
     }
   }
@@ -1172,7 +1172,7 @@ app.post(
     if (!ad) {
       return res.status(400).json({
         error:
-          'Departman adı boş olamaz.'
+          'Departman adÄ± boÅŸ olamaz.'
       });
     }
 
@@ -1259,7 +1259,7 @@ app.post(
     if (!ad) {
       return res.status(400).json({
         error:
-          'Ünvan adı boş olamaz.'
+          'Ãœnvan adÄ± boÅŸ olamaz.'
       });
     }
 
@@ -1280,7 +1280,7 @@ app.post(
       auditEkle(
         db,
         req,
-        'Ünvan eklendi',
+        'Ãœnvan eklendi',
         ad
       );
 
@@ -1308,7 +1308,7 @@ app.delete(
     auditEkle(
       db,
       req,
-      'Ünvan silindi',
+      'Ãœnvan silindi',
       req.params.ad
     );
 
@@ -1550,7 +1550,7 @@ app.put(
       auditEkle(
         db,
         req,
-        'Aksiyon güncellendi',
+        'Aksiyon gÃ¼ncellendi',
         db.aksiyonlar[idx].baslik || req.params.id
       );
 
@@ -1561,7 +1561,7 @@ app.put(
       console.error('AKSIYON GUNCELLEME HATASI:', err);
 
       res.status(500).json({
-        error: 'Aksiyon güncellenemedi.'
+        error: 'Aksiyon gÃ¼ncellenemedi.'
       });
     }
   }
@@ -1649,7 +1649,7 @@ app.post(
       auditEkle(
         db,
         req,
-        'Toplantı notu eklendi',
+        'ToplantÄ± notu eklendi',
         newNote.baslik
       );
 
@@ -1663,7 +1663,7 @@ app.post(
       );
 
       res.status(500).json({
-        error: 'Toplantı notu eklenemedi.'
+        error: 'ToplantÄ± notu eklenemedi.'
       });
     }
   }
@@ -1683,7 +1683,7 @@ app.put(
 
       if (idx === -1) {
         return res.status(404).json({
-          error: 'Toplantı notu bulunamadı.'
+          error: 'ToplantÄ± notu bulunamadÄ±.'
         });
       }
 
@@ -1696,7 +1696,7 @@ app.put(
       auditEkle(
         db,
         req,
-        'Toplantı notu güncellendi',
+        'ToplantÄ± notu gÃ¼ncellendi',
         db.toplantiNotlari[idx].baslik ||
           req.params.id
       );
@@ -1713,7 +1713,7 @@ app.put(
       );
 
       res.status(500).json({
-        error: 'Toplantı notu güncellenemedi.'
+        error: 'ToplantÄ± notu gÃ¼ncellenemedi.'
       });
     }
   }
@@ -1739,7 +1739,7 @@ app.delete(
       auditEkle(
         db,
         req,
-        'Toplantı notu silindi',
+        'ToplantÄ± notu silindi',
         note
           ? note.baslik
           : req.params.id
@@ -1757,7 +1757,7 @@ app.delete(
       );
 
       res.status(500).json({
-        error: 'Toplantı notu silinemedi.'
+        error: 'ToplantÄ± notu silinemedi.'
       });
     }
   }
@@ -1768,18 +1768,33 @@ app.delete(
 // ============================================================
 
 app.get(
-  '/api/katilim/:tarih',
+  '/api/katilim/:yearMonth/:day',
+  (req, res) => {
+    const db = readDB();
+
+    const yearMonth = req.params.yearMonth;
+    const day = String(Number(req.params.day));
+
+    const monthData =
+      (db.katilim || {})[yearMonth] || {};
+
+    res.json(monthData[day] || {});
+  }
+);
+
+app.get(
+  '/api/katilim/:yearMonth',
   (req, res) => {
     const db = readDB();
 
     res.json(
-      (db.katilim || {})[req.params.tarih] || {}
+      (db.katilim || {})[req.params.yearMonth] || {}
     );
   }
 );
 
 app.post(
-  '/api/katilim/:tarih',
+  '/api/katilim/:yearMonth/:day',
   requireRole('kontrolcu'),
   async (req, res) => {
     try {
@@ -1788,20 +1803,26 @@ app.post(
       db.katilim =
         db.katilim || {};
 
-      db.katilim[req.params.tarih] =
+      const yearMonth = req.params.yearMonth;
+      const day = String(Number(req.params.day));
+
+      db.katilim[yearMonth] =
+        db.katilim[yearMonth] || {};
+
+      db.katilim[yearMonth][day] =
         req.body || {};
 
       auditEkle(
         db,
         req,
-        'Katılım kaydı güncellendi',
-        req.params.tarih
+        'KatÄ±lÄ±m kaydÄ± gÃ¼ncellendi',
+        `${yearMonth}/${day}`
       );
 
       await writeDB(db);
 
       res.json(
-        db.katilim[req.params.tarih]
+        db.katilim[yearMonth][day]
       );
     } catch (err) {
       console.error(
@@ -1810,7 +1831,7 @@ app.post(
       );
 
       res.status(500).json({
-        error: 'Katılım kaydedilemedi.'
+        error: 'KatÄ±lÄ±m kaydedilemedi.'
       });
     }
   }
@@ -1889,7 +1910,7 @@ app.post(
       auditEkle(
         db,
         req,
-        'ASD sapma kaydı eklendi',
+        'ASD sapma kaydÄ± eklendi',
         kayit.id
       );
 
@@ -1903,7 +1924,7 @@ app.post(
       );
 
       res.status(500).json({
-        error: 'ASD sapma kaydı eklenemedi.'
+        error: 'ASD sapma kaydÄ± eklenemedi.'
       });
     }
   }
@@ -1923,7 +1944,7 @@ app.put(
 
       if (idx === -1) {
         return res.status(404).json({
-          error: 'ASD sapma kaydı bulunamadı.'
+          error: 'ASD sapma kaydÄ± bulunamadÄ±.'
         });
       }
 
@@ -1936,7 +1957,7 @@ app.put(
       auditEkle(
         db,
         req,
-        'ASD sapma kaydı güncellendi',
+        'ASD sapma kaydÄ± gÃ¼ncellendi',
         req.params.id
       );
 
@@ -1952,7 +1973,7 @@ app.put(
       );
 
       res.status(500).json({
-        error: 'ASD sapma kaydı güncellenemedi.'
+        error: 'ASD sapma kaydÄ± gÃ¼ncellenemedi.'
       });
     }
   }
@@ -1973,7 +1994,7 @@ app.delete(
       auditEkle(
         db,
         req,
-        'ASD sapma kaydı silindi',
+        'ASD sapma kaydÄ± silindi',
         req.params.id
       );
 
@@ -1989,7 +2010,7 @@ app.delete(
       );
 
       res.status(500).json({
-        error: 'ASD sapma kaydı silinemedi.'
+        error: 'ASD sapma kaydÄ± silinemedi.'
       });
     }
   }
@@ -2014,11 +2035,11 @@ function ensureInitialAdmin(db) {
   }
 
   /*
-   * Eğer eski db.json içinde personel varsa
-   * mevcut kayıtları koruyoruz.
+   * EÄŸer eski db.json iÃ§inde personel varsa
+   * mevcut kayÄ±tlarÄ± koruyoruz.
    *
-   * Hiç admin yoksa sadece güvenli bir ilk admin
-   * oluşturuyoruz.
+   * HiÃ§ admin yoksa sadece gÃ¼venli bir ilk admin
+   * oluÅŸturuyoruz.
    */
 
   const {
@@ -2028,9 +2049,9 @@ function ensureInitialAdmin(db) {
 
   db.personel.push({
     id: Date.now().toString(),
-    ad: 'Sistem Yöneticisi',
-    departman: 'Hammadde Laboratuvarı',
-    unvan: 'Bölüm Sorumlusu',
+    ad: 'Sistem YÃ¶neticisi',
+    departman: 'Hammadde LaboratuvarÄ±',
+    unvan: 'BÃ¶lÃ¼m Sorumlusu',
     fotoBase64: '',
     sorumluluklar: [],
     kullaniciAdi: 'admin',
@@ -2072,7 +2093,7 @@ app.get('/api/health', async (req, res) => {
 
 app.use('/api', (req, res) => {
   res.status(404).json({
-    error: 'API endpoint bulunamadı.'
+    error: 'API endpoint bulunamadÄ±.'
   });
 });
 
@@ -2088,7 +2109,7 @@ app.use((err, req, res, next) => {
   }
 
   res.status(500).json({
-    error: 'Beklenmeyen bir sunucu hatası oluştu.'
+    error: 'Beklenmeyen bir sunucu hatasÄ± oluÅŸtu.'
   });
 });
 
@@ -2104,24 +2125,24 @@ async function startServer() {
     console.log('Supabase PostgreSQL Edition');
     console.log('========================================================');
 
-    console.log('1) Supabase bağlantısı test ediliyor...');
+    console.log('1) Supabase baÄŸlantÄ±sÄ± test ediliyor...');
 
     await pool.query('SELECT NOW()');
 
     console.log(
-      '   Supabase bağlantısı BASARILI.'
+      '   Supabase baÄŸlantÄ±sÄ± BASARILI.'
     );
 
-    console.log('2) Veritabanı yükleniyor...');
+    console.log('2) VeritabanÄ± yÃ¼kleniyor...');
 
     await loadDB();
 
     console.log(
-      '   Veritabanı BASARIYLA yüklendi.'
+      '   VeritabanÄ± BASARIYLA yÃ¼klendi.'
     );
 
     console.log(
-      '3) İlk admin kontrol ediliyor...'
+      '3) Ä°lk admin kontrol ediliyor...'
     );
 
     const db = readDB();
@@ -2130,16 +2151,16 @@ async function startServer() {
       await writeDB(db);
 
       console.log(
-        '   İlk admin oluşturuldu.'
+        '   Ä°lk admin oluÅŸturuldu.'
       );
       console.log(
-        '   Kullanıcı adı: admin'
+        '   KullanÄ±cÄ± adÄ±: admin'
       );
       console.log(
-        '   Şifre: admin123'
+        '   Åifre: admin123'
       );
       console.log(
-        '   NOT: İlk girişten sonra şifreyi değiştirin.'
+        '   NOT: Ä°lk giriÅŸten sonra ÅŸifreyi deÄŸiÅŸtirin.'
       );
     } else {
       console.log(
@@ -2148,20 +2169,20 @@ async function startServer() {
     }
 
     console.log(
-      '4) Sunucu başlatılıyor...'
+      '4) Sunucu baÅŸlatÄ±lÄ±yor...'
     );
 
     app.listen(PORT, () => {
       console.log('');
       console.log('========================================================');
       console.log(
-        `WCT Dashboard sunucusu çalışıyor: http://localhost:${PORT}`
+        `WCT Dashboard sunucusu Ã§alÄ±ÅŸÄ±yor: http://localhost:${PORT}`
       );
       console.log(
-        `Sürüm: ${APP_VERSION}`
+        `SÃ¼rÃ¼m: ${APP_VERSION}`
       );
       console.log(
-        'Veritabanı: Supabase PostgreSQL'
+        'VeritabanÄ±: Supabase PostgreSQL'
       );
       console.log('========================================================');
       console.log('');
@@ -2169,7 +2190,7 @@ async function startServer() {
   } catch (err) {
     console.error('');
     console.error('========================================================');
-    console.error('SUNUCU BAŞLATILAMADI');
+    console.error('SUNUCU BAÅLATILAMADI');
     console.error('========================================================');
     console.error(err);
     console.error('========================================================');
@@ -2189,14 +2210,14 @@ async function startServer() {
 async function shutdown(signal) {
   console.log('');
   console.log(
-    `${signal} alındı. Sunucu kapatılıyor...`
+    `${signal} alÄ±ndÄ±. Sunucu kapatÄ±lÄ±yor...`
   );
 
   try {
     await dbWriteQueue;
   } catch (err) {
     console.error(
-      'Bekleyen DB yazma hatası:',
+      'Bekleyen DB yazma hatasÄ±:',
       err
     );
   }
@@ -2205,13 +2226,13 @@ async function shutdown(signal) {
     await pool.end();
   } catch (err) {
     console.error(
-      'Pool kapatma hatası:',
+      'Pool kapatma hatasÄ±:',
       err
     );
   }
 
   console.log(
-    'Supabase bağlantısı kapatıldı.'
+    'Supabase baÄŸlantÄ±sÄ± kapatÄ±ldÄ±.'
   );
 
   process.exit(0);
@@ -2232,3 +2253,4 @@ process.on(
 // ============================================================
 
 startServer();
+
