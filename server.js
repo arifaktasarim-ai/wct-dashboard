@@ -1768,18 +1768,33 @@ app.delete(
 // ============================================================
 
 app.get(
-  '/api/katilim/:tarih',
+  '/api/katilim/:yearMonth/:day',
+  (req, res) => {
+    const db = readDB();
+
+    const yearMonth = req.params.yearMonth;
+    const day = String(Number(req.params.day));
+
+    const monthData =
+      (db.katilim || {})[yearMonth] || {};
+
+    res.json(monthData[day] || {});
+  }
+);
+
+app.get(
+  '/api/katilim/:yearMonth',
   (req, res) => {
     const db = readDB();
 
     res.json(
-      (db.katilim || {})[req.params.tarih] || {}
+      (db.katilim || {})[req.params.yearMonth] || {}
     );
   }
 );
 
 app.post(
-  '/api/katilim/:tarih',
+  '/api/katilim/:yearMonth/:day',
   requireRole('kontrolcu'),
   async (req, res) => {
     try {
@@ -1788,20 +1803,26 @@ app.post(
       db.katilim =
         db.katilim || {};
 
-      db.katilim[req.params.tarih] =
+      const yearMonth = req.params.yearMonth;
+      const day = String(Number(req.params.day));
+
+      db.katilim[yearMonth] =
+        db.katilim[yearMonth] || {};
+
+      db.katilim[yearMonth][day] =
         req.body || {};
 
       auditEkle(
         db,
         req,
-        'Katılım kaydı güncellendi',
-        req.params.tarih
+        'Katilim kaydi guncellendi',
+        `${yearMonth}/${day}`
       );
 
       await writeDB(db);
 
       res.json(
-        db.katilim[req.params.tarih]
+        db.katilim[yearMonth][day]
       );
     } catch (err) {
       console.error(
@@ -1810,7 +1831,7 @@ app.post(
       );
 
       res.status(500).json({
-        error: 'Katılım kaydedilemedi.'
+        error: 'Katilim kaydedilemedi.'
       });
     }
   }
