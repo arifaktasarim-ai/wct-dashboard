@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-12-supabase';
+const APP_VERSION = 'v2026-09-18-roles3';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -145,14 +145,31 @@ function verifyPassword(password, salt, hash) {
 // ============================================================
 
 const ROL_SEVIYE = {
-  izleyici: 0,
-  yazici: 1,
-  kidemli: 2,
-  admin: 3
+  kullanici: 0,
+  kontrolcu: 1,
+  admin: 2
 };
 
+// Eski (4 seviyeli) rol isimlerinden yeni 3 seviyeli sisteme gecis haritasi.
+// izleyici          -> kullanici  (sadece goruntuleme)
+// yazici, kidemli   -> kontrolcu  (kullanabilir/duzenleyebilir, silemez)
+// admin             -> admin      (tam yetki, silme dahil)
+const ESKI_ROL_HARITASI = {
+  izleyici: 'kullanici',
+  yazici: 'kontrolcu',
+  kidemli: 'kontrolcu',
+  kullanici: 'kullanici',
+  kontrolcu: 'kontrolcu',
+  admin: 'admin'
+};
+
+function normalizeRol(rol) {
+  return ESKI_ROL_HARITASI[rol] || 'kullanici';
+}
+
 function rolSeviyesi(user) {
-  return ROL_SEVIYE[(user && user.rol) || 'izleyici'] ?? 0;
+  const rol = normalizeRol(user && user.rol);
+  return ROL_SEVIYE[rol] ?? 0;
 }
 
 // ============================================================
@@ -328,6 +345,13 @@ function normalizeDB(parsed) {
 
   merged.asdSapmaKayitlari =
     parsed.asdSapmaKayitlari || [];
+
+  // Eski rol isimleriyle kaydedilmis personel varsa (izleyici/yazici/kidemli)
+  // her yuklemede/yazmada otomatik olarak yeni 3 seviyeli role gecirilir.
+  merged.personel = (merged.personel || []).map(p => ({
+    ...p,
+    rol: normalizeRol(p.rol)
+  }));
 
   return merged;
 }
@@ -691,7 +715,7 @@ app.get(
 
 app.post(
   '/api/data/:category/:yearMonth/:day',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     try {
       const {
@@ -718,11 +742,11 @@ app.post(
       if (
         existing.reviewed === true &&
         rolSeviyesi(req.currentUser) <
-          ROL_SEVIYE.kidemli
+          ROL_SEVIYE.admin
       ) {
         return res.status(403).json({
           error:
-            'Bu gün zaten kaydedilmiş ve kilitlenmiş. Değiştirmek için kıdemli veya admin yetkisi gerekir.'
+            'Bu gün zaten kaydedilmiş ve kilitlenmiş. Değiştirmek için admin yetkisi gerekir.'
         });
       }
 
@@ -767,7 +791,7 @@ app.post(
 
 app.delete(
   '/api/data/:category/:yearMonth/:day',
-  requireRole('yazici'),
+  requireRole('admin'),
   async (req, res) => {
     try {
       const {
@@ -793,11 +817,11 @@ app.delete(
       if (
         existing.reviewed === true &&
         rolSeviyesi(req.currentUser) <
-          ROL_SEVIYE.kidemli
+          ROL_SEVIYE.admin
       ) {
         return res.status(403).json({
           error:
-            'Bu gün zaten kaydedilmiş ve kilitlenmiş. Silmek için kıdemli veya admin yetkisi gerekir.'
+            'Bu gün zaten kaydedilmiş ve kilitlenmiş. Silmek için admin yetkisi gerekir.'
         });
       }
 
@@ -872,7 +896,7 @@ app.post(
                 req.body.kullaniciAdi
               ).trim()
             : '',
-        rol: req.body.rol || 'izleyici'
+        rol: normalizeRol(req.body.rol)
       };
 
       if (newPerson.kullaniciAdi) {
@@ -1005,6 +1029,35 @@ app.put(
       }
 
       delete body.sifre;
+
+      if (body.rol) {
+        body.rol = normalizeRol(body.rol);
+
+        // Sistemdeki son admin'in rolu, kendisi dahil, dusurulemez;
+        // aksi halde paneli yonetecek kimse kalmaz.
+        if (body.rol !== 'admin') {
+          const hedefKisi =
+            (db.personel || []).find(
+              p => p.id === req.params.id
+            );
+
+          if (hedefKisi && hedefKisi.rol === 'admin') {
+            const digerAdminSayisi =
+              (db.personel || []).filter(
+                p =>
+                  p.id !== req.params.id &&
+                  normalizeRol(p.rol) === 'admin'
+              ).length;
+
+            if (digerAdminSayisi === 0) {
+              return res.status(400).json({
+                error:
+                  'Sistemde en az bir admin kalmalı. Bu kişinin rolünü değiştirmeden önce başka bir admin atayın.'
+              });
+            }
+          }
+        }
+      }
 
       db.personel[idx] = {
         ...db.personel[idx],
@@ -1336,7 +1389,7 @@ app.get(
 
 app.post(
   '/api/duyurular',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     const db = readDB();
 
@@ -1370,7 +1423,7 @@ app.get(
 
 app.post(
   '/api/skt',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     const db = readDB();
 
@@ -1400,7 +1453,7 @@ app.post(
 
 app.delete(
   '/api/skt/:id',
-  requireRole('yazici'),
+  requireRole('admin'),
   async (req, res) => {
     const db = readDB();
 
@@ -1435,7 +1488,7 @@ app.get(
 
 app.post(
   '/api/actions',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     const db = readDB();
 
@@ -1472,7 +1525,7 @@ app.post(
 
 app.put(
   '/api/actions/:id',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     try {
       const db = readDB();
@@ -1516,7 +1569,7 @@ app.put(
 
 app.delete(
   '/api/actions/:id',
-  requireRole('yazici'),
+  requireRole('admin'),
   async (req, res) => {
     try {
       const db = readDB();
@@ -1572,7 +1625,7 @@ app.get(
 
 app.post(
   '/api/notlar',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     try {
       const db = readDB();
@@ -1618,7 +1671,7 @@ app.post(
 
 app.put(
   '/api/notlar/:id',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     try {
       const db = readDB();
@@ -1668,7 +1721,7 @@ app.put(
 
 app.delete(
   '/api/notlar/:id',
-  requireRole('yazici'),
+  requireRole('admin'),
   async (req, res) => {
     try {
       const db = readDB();
@@ -1727,7 +1780,7 @@ app.get(
 
 app.post(
   '/api/katilim/:tarih',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     try {
       const db = readDB();
@@ -1816,7 +1869,7 @@ app.get(
 
 app.post(
   '/api/asd-sapma',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     try {
       const db = readDB();
@@ -1858,7 +1911,7 @@ app.post(
 
 app.put(
   '/api/asd-sapma/:id',
-  requireRole('yazici'),
+  requireRole('kontrolcu'),
   async (req, res) => {
     try {
       const db = readDB();
@@ -1907,7 +1960,7 @@ app.put(
 
 app.delete(
   '/api/asd-sapma/:id',
-  requireRole('yazici'),
+  requireRole('admin'),
   async (req, res) => {
     try {
       const db = readDB();

@@ -651,6 +651,17 @@ tr.status-row td {
 
 .actions-table th { background: #eef1f6; color: var(--navy); }
 
+.ku-username, .ku-password,
+#kullaniciYonetimiTableBody select {
+  width: 100%;
+  min-width: 140px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
 .badge {
   display: inline-block;
   padding: 3px 8px;
@@ -1860,15 +1871,34 @@ body.compact-mode .ozet-stat-card {
   font-weight: 600;
 }
 
-/* Izleyici (goruntuleme) rolundeki kullanicilar icin yazma/degistirme
-   arayuzlerini gizle. Sayfalar bozulmasin diye elemanlari SILMIYORUZ,
-   sadece gorunmez yapiyoruz; sunucu zaten ayni kurali API seviyesinde
-   de zorunlu kildigi icin bu sadece bir arayuz kolayligidir. */
-body[data-user-role="izleyici"] .btn-primary,
-body[data-user-role="izleyici"] .person-add-row,
-body[data-user-role="izleyici"] #ayarlarKaydetBtn,
-body[data-user-role="izleyici"] .action-form,
-body[data-user-role="izleyici"] .icon-btn:not(.no-yetki-gizleme) {
+/* Rol bazli arayuz gizleme. Sayfalar bozulmasin diye elemanlari
+   SILMIYORUZ, sadece gorunmez yapiyoruz; sunucu zaten ayni kurali API
+   seviyesinde de zorunlu kildigi icin bu sadece bir arayuz kolayligidir.
+
+   kullanici  -> sadece goruntuleme: hicbir yazma arayuzu gorunmez.
+   kontrolcu  -> icerik ekleyip duzenleyebilir (gunluk veri, aksiyon, not,
+                 SKT, duyuru, katilim) ama HICBIR SEYI SILEMEZ; ayrica
+                 Personel (kullanici hesabi) ve Ayarlar yonetimi admin'e
+                 ozeldir.
+   admin      -> tum yetkiler; hicbir kisitlama uygulanmaz. */
+
+body[data-user-role="kullanici"] .btn-primary,
+body[data-user-role="kullanici"] .person-add-row,
+body[data-user-role="kullanici"] #ayarlarKaydetBtn,
+body[data-user-role="kullanici"] .action-form,
+body[data-user-role="kullanici"] .icon-btn:not(.no-yetki-gizleme),
+body[data-user-role="kullanici"] #modalClearBtn,
+body[data-user-role="kullanici"] #siralamaGroup .siralama-item-buttons {
+  display: none !important;
+}
+
+body[data-user-role="kontrolcu"] .icon-btn.danger,
+body[data-user-role="kontrolcu"] #modalClearBtn,
+body[data-user-role="kontrolcu"] #grid-personel .action-form,
+body[data-user-role="kontrolcu"] #grid-personel .icon-btn,
+body[data-user-role="kontrolcu"] #grid-ayarlar .action-form,
+body[data-user-role="kontrolcu"] #grid-ayarlar #ayarlarKaydetBtn,
+body[data-user-role="kontrolcu"] #siralamaGroup .siralama-item-buttons {
   display: none !important;
 }
 

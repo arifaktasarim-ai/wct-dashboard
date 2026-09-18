@@ -53,6 +53,7 @@
   <button class="tab-btn" data-tab="personel">Personel</button>
   <button class="tab-btn" data-tab="organizasyon">Organizasyon</button>
   <button class="tab-btn" data-tab="ayarlar">Ayarlar</button>
+  <button class="tab-btn" data-tab="kullanicilar" style="display:none;">Kullanıcı Yönetimi</button>
 </nav>
 
 <main id="mainContent">
@@ -470,6 +471,32 @@
     </details>
 
     <button type="button" class="btn-primary" id="ayarlarKaydetBtn" style="width:100%;margin-top:8px;">Ayarları Kaydet</button>
+  </section>
+
+  <!-- Kullanici Yonetimi paneli (sadece admin) -->
+  <section id="grid-kullanicilar" class="tab-panel actions-panel">
+    <h2>Kullanıcı Yönetimi</h2>
+    <div class="category-hedef">
+      Buradan personel kayıtlarına giriş bilgisi (kullanıcı adı / şifre) ve yetki
+      rolü atayabilirsiniz. <strong>Admin:</strong> tüm işlemleri yapabilir (silme
+      dahil). <strong>Kontrolcü:</strong> günlük verileri, aksiyonları, notları vb.
+      ekleyip düzenleyebilir ama hiçbir şeyi silemez. <strong>Kullanıcı:</strong>
+      panoyu sadece görüntüleyebilir. Kullanıcı adı boş bırakılan personel giriş
+      yapamaz (sadece kayıt olarak listelerde görünür). Şifre alanı sadece
+      değiştirmek istediğinizde doldurulmalıdır.
+    </div>
+    <table class="actions-table">
+      <thead>
+        <tr>
+          <th>Personel</th>
+          <th>Kullanıcı Adı</th>
+          <th>Yeni Şifre</th>
+          <th>Rol</th>
+          <th>İşlem</th>
+        </tr>
+      </thead>
+      <tbody id="kullaniciYonetimiTableBody"></tbody>
+    </table>
   </section>
 
 </main>

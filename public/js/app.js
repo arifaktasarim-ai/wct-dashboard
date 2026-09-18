@@ -268,17 +268,33 @@ function initLoginForm() {
   });
 }
 
-function applyRolBasedUI() {
-  const rol = currentUser ? currentUser.rol : 'izleyici';
-  document.body.dataset.userRole = rol;
-  // izleyici (goruntuleme) rolundeki kullanicilar hicbir yazma/degistirme
-  // arayuzunu gormemeli; CSS bu data-user-role="izleyici" ozniteligine gore
-  // ilgili butonlari/formlari gizler (bkz. style.css)
-  const userNameEl = document.getElementById('currentUserName');
-  if (userNameEl) userNameEl.textContent = currentUser ? `${currentUser.ad} (${ROL_ETIKET[rol] || rol})` : '';
+// Eski (4 seviyeli) rol isimleriyle gelen bir oturum varsa (tarayici onbellegi
+// vb.) yeni 3 seviyeli sisteme cevirir. Sunucu zaten bu donusumu kalici olarak
+// yapiyor; burasi sadece arayuzde gecici bir uyumsuzluk olmamasi icindir.
+const ESKI_ROL_HARITASI = { izleyici: 'kullanici', yazici: 'kontrolcu', kidemli: 'kontrolcu' };
+function normalizeRolClient(rol) {
+  return ESKI_ROL_HARITASI[rol] || rol || 'kullanici';
 }
 
-const ROL_ETIKET = { admin: 'Yönetici', kidemli: 'Kıdemli', yazici: 'Yazma Yetkili', izleyici: 'Görüntüleme' };
+function isAdmin() {
+  return !!currentUser && normalizeRolClient(currentUser.rol) === 'admin';
+}
+
+function applyRolBasedUI() {
+  const rol = normalizeRolClient(currentUser ? currentUser.rol : 'kullanici');
+  document.body.dataset.userRole = rol;
+  // kullanici (sadece goruntuleme) rolundeki kisiler hicbir yazma arayuzunu,
+  // kontrolcu rolundeki kisiler ise sadece SILME arayuzunu gormemeli; CSS bu
+  // data-user-role ozniteligine gore ilgili butonlari/formlari gizler (bkz. style.css)
+  const userNameEl = document.getElementById('currentUserName');
+  if (userNameEl) userNameEl.textContent = currentUser ? `${currentUser.ad} (${ROL_ETIKET[rol] || rol})` : '';
+
+  // "Kullanıcı Yönetimi" sekmesi sadece admin'e gorunur.
+  const kullaniciTab = document.querySelector('.tab-btn[data-tab="kullanicilar"]');
+  if (kullaniciTab) kullaniciTab.style.display = rol === 'admin' ? '' : 'none';
+}
+
+const ROL_ETIKET = { admin: 'Yönetici', kontrolcu: 'Kontrolcü', kullanici: 'Kullanıcı' };
 
 async function initAppAfterLogin() {
   // KRITIK: her init fonksiyonu ayri try/catch icinde cagrilir. Eskiden bu
@@ -368,6 +384,7 @@ function reloadCurrentTab() {
   if (state.category === 'personel') { return; }
   if (state.category === 'organizasyon') { return; }
   if (state.category === 'ayarlar') { return; }
+  if (state.category === 'kullanicilar') { return; }
   if (state.category === 'ozet') { renderOzet(); return; }
   if (state.category === 'gunluk') { loadAllCategoriesAndRender(); return; }
 }
@@ -376,6 +393,10 @@ function initTabs() {
   const tabButtons = document.querySelectorAll('.tab-btn');
   tabButtons.forEach(btn => {
     btn.addEventListener('click', () => {
+      // "Kullanıcı Yönetimi" sekmesi yalnizca admin icindir; sunucu zaten
+      // API seviyesinde bunu zorunlu kilar, bu sadece arayuz guvencesidir.
+      if (btn.dataset.tab === 'kullanicilar' && !isAdmin()) return;
+
       tabButtons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
 
@@ -398,6 +419,8 @@ function initTabs() {
         renderSiralamaListleri();
         const bildirimSelect = document.getElementById('bildirimPersonelSelect');
         if (bildirimSelect) fillPersonelSelect(bildirimSelect, localStorage.getItem(MY_PERSONEL_ID_KEY) || '');
+      } else if (state.category === 'kullanicilar') {
+        renderKullaniciYonetimiTable();
       } else if (state.category === 'ozet') {
         renderOzet();
       } else if (state.category === 'gunluk') {
@@ -719,6 +742,91 @@ function renderPersonelTable() {
       await fetch(`/api/personel/${btn.dataset.delPerson}`, { method: 'DELETE' });
       await loadPersonelList();
       renderPersonelTable();
+    });
+  });
+}
+
+// ================== KULLANICI YONETIMI (sadece admin) ==================
+// Personel kayitlarina giris bilgisi (kullanici adi/sifre) ve yetki rolu
+// atamak icin admin'e ozel panel. Rol seviyeleri:
+//   admin      -> tum yetkiler (silme dahil)
+//   kontrolcu  -> ekleyebilir/duzenleyebilir, SILEMEZ
+//   kullanici  -> sadece goruntuleme
+
+const ROL_SECENEKLERI = [
+  { value: 'kullanici', label: 'Kullanıcı (sadece görüntüleme)' },
+  { value: 'kontrolcu', label: 'Kontrolcü (kullanır, silemez)' },
+  { value: 'admin', label: 'Admin (tüm yetkiler)' }
+];
+
+function renderKullaniciYonetimiTable() {
+  const tbody = document.getElementById('kullaniciYonetimiTableBody');
+  if (!tbody) return;
+
+  if (state.personelList.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#6b7280;">Henüz personel eklenmedi. Önce "Personel" sekmesinden personel ekleyin.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = state.personelList.map(p => {
+    const rol = normalizeRolClient(p.rol);
+    return `
+    <tr data-user-row="${p.id}">
+      <td>${personAvatarHtml(p, 32)} ${escapeHtml(p.ad)}</td>
+      <td><input type="text" class="ku-username" data-ku-username="${p.id}" value="${escapeHtml(p.kullaniciAdi || '')}" placeholder="kullanıcı adı (opsiyonel)"></td>
+      <td><input type="password" class="ku-password" data-ku-password="${p.id}" placeholder="değiştirmek için girin" autocomplete="new-password"></td>
+      <td>
+        <select data-ku-rol="${p.id}">
+          ${ROL_SECENEKLERI.map(r => `<option value="${r.value}" ${r.value === rol ? 'selected' : ''}>${r.label}</option>`).join('')}
+        </select>
+      </td>
+      <td><button type="button" class="icon-btn" data-ku-save="${p.id}">Kaydet</button></td>
+    </tr>
+  `;
+  }).join('');
+
+  tbody.querySelectorAll('[data-ku-save]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.kuSave;
+      const usernameEl = tbody.querySelector(`[data-ku-username="${id}"]`);
+      const passwordEl = tbody.querySelector(`[data-ku-password="${id}"]`);
+      const rolEl = tbody.querySelector(`[data-ku-rol="${id}"]`);
+
+      const kullaniciAdi = usernameEl.value.trim();
+      const sifre = passwordEl.value;
+      const rol = rolEl.value;
+
+      if (kullaniciAdi && !sifre) {
+        const mevcut = state.personelList.find(p => p.id === id);
+        if (!mevcut || !mevcut.kullaniciAdi) {
+          alert('Bu kişi için yeni bir kullanıcı adı belirlediniz; ilk şifreyi de girmeniz gerekiyor.');
+          return;
+        }
+      }
+
+      const payload = { kullaniciAdi, rol };
+      if (sifre) payload.sifre = sifre;
+
+      btn.disabled = true;
+      btn.textContent = 'Kaydediliyor…';
+      try {
+        const res = await fetch(`/api/personel/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Kaydedilemedi.');
+        passwordEl.value = '';
+        await loadPersonelList();
+        showToast('Kullanıcı bilgileri güncellendi.');
+        renderKullaniciYonetimiTable();
+      } catch (err) {
+        alert('⚠ ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Kaydet';
+      }
     });
   });
 }
