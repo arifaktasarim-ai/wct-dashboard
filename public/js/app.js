@@ -2718,7 +2718,7 @@ function openPersonDetailModal(personId) {
           <summary>Açılan ASD Kayıtları (${asdList.length})</summary>
           <div class="ozet-details-body">${kayitDetayListesiHtml(asdList)}</div>
         </details>
-        <details class="ozet-details person-kayit-details">
+        <details class="ozet-details person-kayit-details" open>
           <summary>Açılan Sapma Kayıtları (${sapmaList.length})</summary>
           <div class="ozet-details-body">${kayitDetayListesiHtml(sapmaList)}</div>
         </details>
