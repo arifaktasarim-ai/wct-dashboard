@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #f2f4f7;
   --card-bg: #ffffff;
   --navy: #1b2a4a;
@@ -989,7 +989,7 @@ tr.status-row td {
 .ozet-details summary::-webkit-details-marker { display: none; }
 
 .ozet-details summary::before {
-  content: '▸';
+  content: 'â–¸';
   color: var(--text-muted);
   font-size: 12px;
   transition: transform 0.15s ease;
@@ -1670,6 +1670,7 @@ body.compact-mode .ozet-stat-card {
 
 .person-kayit-details {
   margin-top: 8px;
+  flex-shrink: 0;
 }
 
 .person-kayit-details summary {
@@ -1979,3 +1980,5 @@ body[data-user-role="kontrolcu"] #siralamaGroup .siralama-item-buttons {
   cursor: pointer;
 }
 .logout-btn:hover { background: rgba(255,255,255,0.28); }
+
+
