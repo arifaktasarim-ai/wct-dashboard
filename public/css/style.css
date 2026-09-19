@@ -387,6 +387,17 @@ tr.status-row td {
   font-size: 14px;
 }
 
+.modal-field select,
+.modal-field input[type="text"] {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  font-family: inherit;
+  flex: 1;
+  max-width: 220px;
+}
+
 .modal-field-check {
   justify-content: flex-start;
 }

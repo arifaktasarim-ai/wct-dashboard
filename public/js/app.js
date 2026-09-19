@@ -1243,21 +1243,52 @@ async function renderKatilimSection() {
 }
 
 // Katilim verisi eski surumde duz string ('katildi'/'katilmadi'/'izinli') idi.
-// Yeni surumde 'izinli' secildiginde ek bilgi (izinGun, raporGun) tutulabilmesi
-// icin deger bir obje de olabiliyor: { durum: 'izinli', izinGun, raporGun }.
+// Yeni surumde 'izinli' secildiginde ek bilgi (izinGun, raporGun, izinTuru,
+// aciklama) tutulabilmesi icin deger bir obje de olabiliyor:
+// { durum: 'izinli', izinGun, raporGun, izinTuru, aciklama }
 function getKatilimDurum(entry) {
   if (!entry) return '';
   return typeof entry === 'object' ? (entry.durum || '') : entry;
 }
+const KATILIM_IZIN_TURU_ETIKET = {
+  tam_gun: 'Tam Gün',
+  ogleden_once: 'Öğleden Önce',
+  ogleden_sonra: 'Öğleden Sonra'
+};
 function getKatilimExtra(entry) {
   if (entry && typeof entry === 'object') {
-    return { izinGun: Number(entry.izinGun) || 0, raporGun: Number(entry.raporGun) || 0 };
+    return {
+      izinGun: Number(entry.izinGun) || 0,
+      raporGun: Number(entry.raporGun) || 0,
+      // Eski kayitlarda izinTuru alani yoktu; hepsi tam gun kabul edilir.
+      izinTuru: entry.izinTuru || 'tam_gun',
+      aciklama: entry.aciklama || ''
+    };
   }
-  return { izinGun: 0, raporGun: 0 };
+  return { izinGun: 0, raporGun: 0, izinTuru: 'tam_gun', aciklama: '' };
+}
+
+// Katilim "ipucu" metnini (izin turu / gun sayisi / aciklama) tek yerden
+// uretir; hem ilk tablo cizimi hem de anlik hint guncellemesi bunu kullanir.
+function formatKatilimExtraHint(extra) {
+  if (!extra) return '';
+  const parcalar = [];
+  if (extra.izinTuru && extra.izinTuru !== 'tam_gun') {
+    parcalar.push(KATILIM_IZIN_TURU_ETIKET[extra.izinTuru] || '');
+  }
+  if (extra.izinGun) parcalar.push(extra.izinGun + ' gün izin');
+  if (extra.raporGun) parcalar.push(extra.raporGun + ' gün rapor');
+  let metin = parcalar.filter(Boolean).join(' · ');
+  if (extra.aciklama) {
+    metin = metin ? `${metin} — ${extra.aciklama}` : extra.aciklama;
+  }
+  return metin;
 }
 
 // Bir personelin, secili gunden ONCEKI bir gunde girilmis izin/rapor kaydinin
 // suresi icinde olup olmadigini hesaplar. Varsa o gun icin satir kilitlenir.
+// NOT: sadece "Tam Gün" turundeki izinler sonraki gunleri kilitler; yarim
+// gunluk (ogleden once/sonra) izinler tek gunluktur, ileri gune tasinmaz.
 function computeKatilimKilit(personId, monthData, currentDay) {
   let bulunan = null;
   for (let d = 1; d < currentDay; d++) {
@@ -1265,12 +1296,21 @@ function computeKatilimKilit(personId, monthData, currentDay) {
     if (!dayEntry || !dayEntry[personId]) continue;
     if (getKatilimDurum(dayEntry[personId]) !== 'izinli') continue;
     const extra = getKatilimExtra(dayEntry[personId]);
+    if (extra.izinTuru && extra.izinTuru !== 'tam_gun') continue;
     const toplamGun = (extra.izinGun || 0) + (extra.raporGun || 0);
     if (toplamGun <= 0) continue;
     const bitisGunu = d + toplamGun - 1;
     if (currentDay <= bitisGunu) {
       // en yakin (en son) kapsayan kaydi esas al
-      bulunan = { anchorDay: d, izinGun: extra.izinGun, raporGun: extra.raporGun, toplamGun, bitisGunu };
+      bulunan = {
+        anchorDay: d,
+        izinGun: extra.izinGun,
+        raporGun: extra.raporGun,
+        izinTuru: extra.izinTuru,
+        aciklama: extra.aciklama,
+        toplamGun,
+        bitisGunu
+      };
     }
   }
   return bulunan;
@@ -1303,21 +1343,21 @@ async function loadAndRenderKatilimTable() {
         ${state.personelList.map(p => {
           const kilit = computeKatilimKilit(p.id, monthData, state.katilimGun);
           const durum = kilit ? 'izinli' : getKatilimDurum(data[p.id]);
-          const extra = kilit ? { izinGun: kilit.izinGun, raporGun: kilit.raporGun } : getKatilimExtra(data[p.id]);
-          const extraHint = durum === 'izinli' && (extra.izinGun || extra.raporGun)
-            ? `${extra.izinGun ? extra.izinGun + ' gün izin' : ''}${extra.izinGun && extra.raporGun ? ' · ' : ''}${extra.raporGun ? extra.raporGun + ' gün rapor' : ''}`
-            : '';
+          const extra = kilit
+            ? { izinGun: kilit.izinGun, raporGun: kilit.raporGun, izinTuru: kilit.izinTuru, aciklama: kilit.aciklama }
+            : getKatilimExtra(data[p.id]);
+          const extraHint = durum === 'izinli' ? formatKatilimExtraHint(extra) : '';
           const kilitliMi = !!kilit;
           const disabledAttr = kilitliMi ? 'disabled' : '';
 
           let ipucuHtml = '';
           if (kilitliMi) {
             const kalanGun = kilit.bitisGunu - state.katilimGun + 1;
-            ipucuHtml = `<div class="katilim-extra-hint katilim-locked-hint">🔒 ${extraHint} — ${String(kilit.anchorDay).padStart(2, '0')}. günden itibaren kilitli (${kalanGun} gün daha)
+            ipucuHtml = `<div class="katilim-extra-hint katilim-locked-hint">🔒 ${escapeHtml(extraHint)} — ${String(kilit.anchorDay).padStart(2, '0')}. günden itibaren kilitli (${kalanGun} gün daha)
               <button type="button" class="katilim-edit-link" data-duzenle-personel="${p.id}" data-duzenle-anchor="${kilit.anchorDay}">Düzenle</button>
             </div>`;
           } else if (extraHint) {
-            ipucuHtml = `<div class="katilim-extra-hint">${extraHint}</div>`;
+            ipucuHtml = `<div class="katilim-extra-hint">${escapeHtml(extraHint)}</div>`;
           }
 
           return `
@@ -1358,7 +1398,7 @@ async function loadAndRenderKatilimTable() {
 }
 
 function openIzinRaporPopup(personelId) {
-  const mevcut = state.katilimExtraData[personelId] || { izinGun: 0, raporGun: 0 };
+  const mevcut = state.katilimExtraData[personelId] || { izinGun: 0, raporGun: 0, izinTuru: 'tam_gun', aciklama: '' };
   const p = state.personelList.find(x => x.id === personelId);
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -1370,12 +1410,26 @@ function openIzinRaporPopup(personelId) {
       </div>
       <div class="modal-body">
         <label class="modal-field">
-          <span>Kaç gün izinli</span>
-          <input type="number" min="0" id="izinGunInput" value="${mevcut.izinGun || 0}">
+          <span>İzin Türü</span>
+          <select id="izinTuruSelect">
+            <option value="tam_gun" ${mevcut.izinTuru === 'tam_gun' ? 'selected' : ''}>Tam Gün</option>
+            <option value="ogleden_once" ${mevcut.izinTuru === 'ogleden_once' ? 'selected' : ''}>Öğleden Önce</option>
+            <option value="ogleden_sonra" ${mevcut.izinTuru === 'ogleden_sonra' ? 'selected' : ''}>Öğleden Sonra</option>
+          </select>
         </label>
+        <div id="izinGunRaporGunAlanlari">
+          <label class="modal-field">
+            <span>Kaç gün izinli</span>
+            <input type="number" min="0" id="izinGunInput" value="${mevcut.izinGun || 0}">
+          </label>
+          <label class="modal-field">
+            <span>Kaç gün raporlu</span>
+            <input type="number" min="0" id="raporGunInput" value="${mevcut.raporGun || 0}">
+          </label>
+        </div>
         <label class="modal-field">
-          <span>Kaç gün raporlu</span>
-          <input type="number" min="0" id="raporGunInput" value="${mevcut.raporGun || 0}">
+          <span>Açıklama (opsiyonel)</span>
+          <input type="text" id="izinAciklamaInput" value="${escapeHtml(mevcut.aciklama || '')}" placeholder="Örn. Doktor randevusu">
         </label>
       </div>
       <div class="modal-footer">
@@ -1390,10 +1444,23 @@ function openIzinRaporPopup(personelId) {
   overlay.querySelector('.modal-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
+  // Yarim gunluk (ogleden once/sonra) izin, ileri gunleri kilitlemez; bu
+  // yuzden gun sayisi alanlari sadece "Tam Gün" secildiginde gosterilir.
+  const turuSelect = overlay.querySelector('#izinTuruSelect');
+  const gunAlanlari = overlay.querySelector('#izinGunRaporGunAlanlari');
+  const guncelleGunAlanGorunurlugu = () => {
+    gunAlanlari.style.display = turuSelect.value === 'tam_gun' ? '' : 'none';
+  };
+  guncelleGunAlanGorunurlugu();
+  turuSelect.addEventListener('change', guncelleGunAlanGorunurlugu);
+
   overlay.querySelector('#izinRaporSaveBtn').addEventListener('click', () => {
-    const izinGun = Number(document.getElementById('izinGunInput').value) || 0;
-    const raporGun = Number(document.getElementById('raporGunInput').value) || 0;
-    state.katilimExtraData[personelId] = { izinGun, raporGun };
+    const izinTuru = turuSelect.value;
+    const tamGunMu = izinTuru === 'tam_gun';
+    const izinGun = tamGunMu ? (Number(document.getElementById('izinGunInput').value) || 0) : 0;
+    const raporGun = tamGunMu ? (Number(document.getElementById('raporGunInput').value) || 0) : 0;
+    const aciklama = document.getElementById('izinAciklamaInput').value.trim();
+    state.katilimExtraData[personelId] = { izinGun, raporGun, izinTuru, aciklama };
     close();
     // hint gorselini aninda guncellemek icin tabloyu yeniden ciz
     renderKatilimRadiosState();
@@ -1404,7 +1471,7 @@ function openIzinRaporPopup(personelId) {
 function renderKatilimRadiosState() {
   document.querySelectorAll('.katilim-radio.katilim-yellow').forEach(radio => {
     const personelId = radio.dataset.katilimPersonel;
-    const extra = state.katilimExtraData[personelId] || { izinGun: 0, raporGun: 0 };
+    const extra = state.katilimExtraData[personelId] || { izinGun: 0, raporGun: 0, izinTuru: 'tam_gun', aciklama: '' };
     const cell = radio.closest('td');
     let hint = cell.querySelector('.katilim-extra-hint');
     if (!hint) {
@@ -1412,11 +1479,7 @@ function renderKatilimRadiosState() {
       hint.className = 'katilim-extra-hint';
       cell.appendChild(hint);
     }
-    if (radio.checked && (extra.izinGun || extra.raporGun)) {
-      hint.innerHTML = `${extra.izinGun ? extra.izinGun + ' gün izin' : ''}${extra.izinGun && extra.raporGun ? ' · ' : ''}${extra.raporGun ? extra.raporGun + ' gün rapor' : ''}`;
-    } else {
-      hint.innerHTML = '';
-    }
+    hint.textContent = radio.checked ? formatKatilimExtraHint(extra) : '';
   });
 }
 
@@ -1430,8 +1493,14 @@ async function saveKatilim() {
     if (input.disabled) return;
     const personelId = input.dataset.katilimPersonel;
     if (input.value === 'izinli') {
-      const extra = state.katilimExtraData[personelId] || { izinGun: 0, raporGun: 0 };
-      payload[personelId] = { durum: 'izinli', izinGun: extra.izinGun, raporGun: extra.raporGun };
+      const extra = state.katilimExtraData[personelId] || { izinGun: 0, raporGun: 0, izinTuru: 'tam_gun', aciklama: '' };
+      payload[personelId] = {
+        durum: 'izinli',
+        izinGun: extra.izinGun,
+        raporGun: extra.raporGun,
+        izinTuru: extra.izinTuru || 'tam_gun',
+        aciklama: extra.aciklama || ''
+      };
     } else {
       payload[personelId] = input.value;
     }
