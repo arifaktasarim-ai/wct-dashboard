@@ -247,6 +247,7 @@ function initLoginForm() {
     const bolumId = document.getElementById('loginBolumId').value;
     const kullaniciAdi = document.getElementById('loginKullaniciAdi').value.trim();
     const sifre = document.getElementById('loginSifre').value;
+    const beniHatirla = document.getElementById('loginBeniHatirla').checked;
     const hataBox = document.getElementById('loginHata');
     const btn = document.getElementById('loginBtn');
     hataBox.style.display = 'none';
@@ -261,7 +262,7 @@ function initLoginForm() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bolumId, kullaniciAdi, sifre })
+        body: JSON.stringify({ bolumId, kullaniciAdi, sifre, beniHatirla })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Giriş başarısız.');
@@ -274,18 +275,131 @@ function initLoginForm() {
       btn.textContent = 'Giriş Yap';
     }
   });
+
+  initSifremiUnuttumAkisi();
+}
+
+function sifreEkraniniDegistir(gosterilecekFormId) {
+  ['loginForm', 'sifreSorusuForm', 'sifreSifirlaForm'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === gosterilecekFormId ? 'flex' : 'none';
+  });
+}
+
+function initSifremiUnuttumAkisi() {
+  let sifirlamaBaglami = { bolumId: '', kullaniciAdi: '' };
+
+  const unuttumBtn = document.getElementById('sifremiUnuttumBtn');
+  if (unuttumBtn) {
+    unuttumBtn.addEventListener('click', () => {
+      const sorusuSelect = document.getElementById('sifreSorusuBolumId');
+      if (sorusuSelect) sorusuSelect.value = document.getElementById('loginBolumId').value;
+      document.getElementById('sifreSorusuKullaniciAdi').value = document.getElementById('loginKullaniciAdi').value;
+      document.getElementById('sifreSorusuHata').style.display = 'none';
+      sifreEkraniniDegistir('sifreSorusuForm');
+    });
+  }
+
+  const geriBtn1 = document.getElementById('sifreSorusuGeriBtn');
+  if (geriBtn1) geriBtn1.addEventListener('click', () => sifreEkraniniDegistir('loginForm'));
+
+  const geriBtn2 = document.getElementById('sifreSifirlaGeriBtn');
+  if (geriBtn2) geriBtn2.addEventListener('click', () => sifreEkraniniDegistir('loginForm'));
+
+  const sorusuForm = document.getElementById('sifreSorusuForm');
+  if (sorusuForm) {
+    sorusuForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bolumId = document.getElementById('sifreSorusuBolumId').value;
+      const kullaniciAdi = document.getElementById('sifreSorusuKullaniciAdi').value.trim();
+      const hataBox = document.getElementById('sifreSorusuHata');
+      const btn = document.getElementById('sifreSorusuBtn');
+      hataBox.style.display = 'none';
+      if (!bolumId || !kullaniciAdi) {
+        hataBox.textContent = '⚠ Lütfen bölüm ve kullanıcı adı girin.';
+        hataBox.style.display = 'block';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Kontrol ediliyor…';
+      try {
+        const res = await fetch('/api/auth/sifre-sorusu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bolumId, kullaniciAdi })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Güvenlik sorusu bulunamadı.');
+        sifirlamaBaglami = { bolumId, kullaniciAdi };
+        document.getElementById('sifreSifirlaSoruMetni').textContent = data.soru;
+        document.getElementById('sifreSifirlaCevap').value = '';
+        document.getElementById('sifreSifirlaYeniSifre').value = '';
+        document.getElementById('sifreSifirlaHata').style.display = 'none';
+        document.getElementById('sifreSifirlaBasari').style.display = 'none';
+        sifreEkraniniDegistir('sifreSifirlaForm');
+      } catch (err) {
+        hataBox.textContent = '⚠ ' + err.message;
+        hataBox.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Devam Et';
+      }
+    });
+  }
+
+  const sifirlaForm = document.getElementById('sifreSifirlaForm');
+  if (sifirlaForm) {
+    sifirlaForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const cevap = document.getElementById('sifreSifirlaCevap').value.trim();
+      const yeniSifre = document.getElementById('sifreSifirlaYeniSifre').value;
+      const hataBox = document.getElementById('sifreSifirlaHata');
+      const basariBox = document.getElementById('sifreSifirlaBasari');
+      const btn = document.getElementById('sifreSifirlaBtn');
+      hataBox.style.display = 'none';
+      basariBox.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Sıfırlanıyor…';
+      try {
+        const res = await fetch('/api/auth/sifre-sifirla', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...sifirlamaBaglami, cevap, yeniSifre })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Şifre sıfırlanamadı.');
+        basariBox.textContent = '✓ Şifreniz güncellendi. Şimdi yeni şifrenizle giriş yapabilirsiniz.';
+        basariBox.style.display = 'block';
+        document.getElementById('loginBolumId').value = sifirlamaBaglami.bolumId;
+        document.getElementById('loginKullaniciAdi').value = sifirlamaBaglami.kullaniciAdi;
+        document.getElementById('loginSifre').value = '';
+        setTimeout(() => sifreEkraniniDegistir('loginForm'), 1500);
+      } catch (err) {
+        hataBox.textContent = '⚠ ' + err.message;
+        hataBox.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Şifreyi Sıfırla';
+      }
+    });
+  }
 }
 
 async function loadBolumSecenekleri() {
-  const select = document.getElementById('loginBolumId');
-  if (!select) return;
+  const selectler = [
+    document.getElementById('loginBolumId'),
+    document.getElementById('sifreSorusuBolumId')
+  ].filter(Boolean);
+  if (selectler.length === 0) return;
   try {
     const res = await fetch('/api/bolumler');
     const bolumler = await res.json();
-    const oncekiDeger = select.value;
-    select.innerHTML = '<option value="">Bölüm seçiniz…</option>' +
-      bolumler.map(b => `<option value="${b.id}">${escapeHtml(b.ad)}</option>`).join('');
-    if (oncekiDeger) select.value = oncekiDeger;
+    selectler.forEach(select => {
+      const oncekiDeger = select.value;
+      select.innerHTML = '<option value="">Bölüm seçiniz…</option>' +
+        bolumler.map(b => `<option value="${b.id}">${escapeHtml(b.ad)}</option>`).join('');
+      if (oncekiDeger) select.value = oncekiDeger;
+    });
   } catch (err) {
     console.error('[loadBolumSecenekleri] Bölümler alınamadı:', err);
   }
@@ -881,7 +995,7 @@ function renderKullaniciYonetimiTable() {
   if (!tbody) return;
 
   if (state.personelList.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#6b7280;">Henüz personel eklenmedi. Önce "Personel" sekmesinden personel ekleyin.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#6b7280;">Henüz personel eklenmedi. Önce "Personel" sekmesinden personel ekleyin.</td></tr>`;
     return;
   }
 
@@ -897,6 +1011,8 @@ function renderKullaniciYonetimiTable() {
           ${ROL_SECENEKLERI.map(r => `<option value="${r.value}" ${r.value === rol ? 'selected' : ''}>${r.label}</option>`).join('')}
         </select>
       </td>
+      <td><input type="text" class="ku-username" data-ku-soru="${p.id}" value="${escapeHtml(p.guvenlikSorusu || '')}" placeholder="Örn. İlk evcil hayvanınızın adı?"></td>
+      <td><input type="text" class="ku-username" data-ku-cevap="${p.id}" placeholder="değiştirmek için girin" autocomplete="off"></td>
       <td><button type="button" class="icon-btn" data-ku-save="${p.id}">Kaydet</button></td>
     </tr>
   `;
@@ -908,10 +1024,14 @@ function renderKullaniciYonetimiTable() {
       const usernameEl = tbody.querySelector(`[data-ku-username="${id}"]`);
       const passwordEl = tbody.querySelector(`[data-ku-password="${id}"]`);
       const rolEl = tbody.querySelector(`[data-ku-rol="${id}"]`);
+      const soruEl = tbody.querySelector(`[data-ku-soru="${id}"]`);
+      const cevapEl = tbody.querySelector(`[data-ku-cevap="${id}"]`);
 
       const kullaniciAdi = usernameEl.value.trim();
       const sifre = passwordEl.value;
       const rol = rolEl.value;
+      const guvenlikSorusu = soruEl.value.trim();
+      const guvenlikCevabi = cevapEl.value.trim();
 
       if (kullaniciAdi && !sifre) {
         const mevcut = state.personelList.find(p => p.id === id);
@@ -921,8 +1041,17 @@ function renderKullaniciYonetimiTable() {
         }
       }
 
-      const payload = { kullaniciAdi, rol };
+      if (guvenlikSorusu && !guvenlikCevabi) {
+        const mevcut = state.personelList.find(p => p.id === id);
+        if (!mevcut || !mevcut.guvenlikSorusu) {
+          alert('Bu kişi için yeni bir güvenlik sorusu belirlediniz; cevabını da girmeniz gerekiyor.');
+          return;
+        }
+      }
+
+      const payload = { kullaniciAdi, rol, guvenlikSorusu };
       if (sifre) payload.sifre = sifre;
+      if (guvenlikCevabi) payload.guvenlikCevabi = guvenlikCevabi;
 
       btn.disabled = true;
       btn.textContent = 'Kaydediliyor…';
@@ -935,6 +1064,7 @@ function renderKullaniciYonetimiTable() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Kaydedilemedi.');
         passwordEl.value = '';
+        cevapEl.value = '';
         await loadPersonelList();
         showToast('Kullanıcı bilgileri güncellendi.');
         renderKullaniciYonetimiTable();

@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-19-bolumler';
+const APP_VERSION = 'v2026-09-19-sifreyenileme';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -424,6 +424,7 @@ function normalizeGlobalDB(parsed) {
 // ============================================================
 // SUPABASE'DEN DB YUKLE
 // ============================================================
+
 async function loadDB() {
   const result = await pool.query(
     `
@@ -615,7 +616,8 @@ app.post('/api/auth/login', async (req, res) => {
     const {
       bolumId,
       kullaniciAdi,
-      sifre
+      sifre,
+      beniHatirla
     } = req.body || {};
 
     const db = readGlobalDB();
@@ -667,9 +669,15 @@ app.post('/api/auth/login', async (req, res) => {
 
     await persistDbCache();
 
+    // "Beni hatırla" isaretliyse cerezin omrunu 1 yil yapiyoruz; degilse
+    // tarayici oturum cerezi olarak birakiyoruz (tarayici kapaninca silinir).
+    const cookieOmru = beniHatirla
+      ? '; Max-Age=31536000'
+      : '';
+
     res.setHeader(
       'Set-Cookie',
-      `wct_session=${token}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax`
+      `wct_session=${token}; HttpOnly; Path=/${cookieOmru}; SameSite=Lax`
     );
 
     const bolum =
@@ -689,6 +697,127 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (err) {
     console.error('LOGIN HATASI:', err);
+
+    res.status(500).json({
+      error: 'Sunucu hatası oluştu.'
+    });
+  }
+});
+
+// ============================================================
+// SIFREMI UNUTTUM (guvenlik sorusu ile)
+// ============================================================
+
+app.post('/api/auth/sifre-sorusu', (req, res) => {
+  try {
+    const {
+      bolumId,
+      kullaniciAdi
+    } = req.body || {};
+
+    const db = readGlobalDB();
+
+    const bolumVerisi =
+      bolumId && (db.bolumVerileri || {})[bolumId];
+
+    const user =
+      bolumVerisi &&
+      (bolumVerisi.personel || []).find(
+        p =>
+          p.kullaniciAdi &&
+          p.kullaniciAdi
+            .toLowerCase() ===
+          String(kullaniciAdi || '')
+            .toLowerCase()
+            .trim()
+      );
+
+    if (!user || !user.guvenlikSorusu) {
+      return res.status(404).json({
+        error:
+          'Bu kullanıcı için güvenlik sorusu tanımlı değil. Lütfen bölüm yöneticinizle iletişime geçin.'
+      });
+    }
+
+    res.json({
+      soru: user.guvenlikSorusu
+    });
+  } catch (err) {
+    console.error('SIFRE SORUSU HATASI:', err);
+
+    res.status(500).json({
+      error: 'Sunucu hatası oluştu.'
+    });
+  }
+});
+
+app.post('/api/auth/sifre-sifirla', async (req, res) => {
+  try {
+    const {
+      bolumId,
+      kullaniciAdi,
+      cevap,
+      yeniSifre
+    } = req.body || {};
+
+    if (!yeniSifre || String(yeniSifre).length < 4) {
+      return res.status(400).json({
+        error: 'Yeni şifre en az 4 karakter olmalıdır.'
+      });
+    }
+
+    const db = readGlobalDB();
+
+    const bolumVerisi =
+      bolumId && (db.bolumVerileri || {})[bolumId];
+
+    const user =
+      bolumVerisi &&
+      (bolumVerisi.personel || []).find(
+        p =>
+          p.kullaniciAdi &&
+          p.kullaniciAdi
+            .toLowerCase() ===
+          String(kullaniciAdi || '')
+            .toLowerCase()
+            .trim()
+      );
+
+    if (
+      !user ||
+      !user.guvenlikSorusu ||
+      !verifyPassword(
+        String(cevap || '').trim().toLowerCase(),
+        user.guvenlikCevabiSalt,
+        user.guvenlikCevabiHash
+      )
+    ) {
+      return res.status(400).json({
+        error: 'Güvenlik cevabı hatalı.'
+      });
+    }
+
+    const {
+      salt,
+      hash
+    } = hashPassword(yeniSifre);
+
+    user.sifreSalt = salt;
+    user.sifreHash = hash;
+
+    // Sifre sifirlandiginda, o kullaniciya ait tum eski oturumlar
+    // guvenlik icin kapatilir.
+    db.sessions = (db.sessions || []).filter(
+      s => s.personelId !== user.id
+    );
+
+    await persistDbCache();
+
+    res.json({
+      ok: true
+    });
+  } catch (err) {
+    console.error('SIFRE SIFIRLAMA HATASI:', err);
 
     res.status(500).json({
       error: 'Sunucu hatası oluştu.'
@@ -1139,6 +1268,8 @@ app.get('/api/personel', (req, res) => {
       ({
         sifreHash,
         sifreSalt,
+        guvenlikCevabiHash,
+        guvenlikCevabiSalt,
         ...rest
       }) => rest
     );
@@ -1302,6 +1433,28 @@ app.put(
       }
 
       delete body.sifre;
+
+      // Guvenlik sorusu/cevabi: "sifremi unuttum" akisinda kullanilir.
+      // Cevap, girildigi gibi degil normalize edilip (kucuk harf + trim)
+      // sifre gibi hash'lenerek saklanir; boylece "Istanbul" ile
+      // "istanbul " ayni kabul edilir.
+      if (typeof body.guvenlikSorusu === 'string') {
+        body.guvenlikSorusu = body.guvenlikSorusu.trim();
+      }
+
+      if (body.guvenlikCevabi) {
+        const {
+          salt,
+          hash
+        } = hashPassword(
+          String(body.guvenlikCevabi).trim().toLowerCase()
+        );
+
+        body.guvenlikCevabiSalt = salt;
+        body.guvenlikCevabiHash = hash;
+      }
+
+      delete body.guvenlikCevabi;
 
       if (body.rol) {
         body.rol = normalizeRol(body.rol);
@@ -2307,7 +2460,7 @@ function ensureInitialBolumVeAdmin(db) {
   if (db.bolumler.length === 0) {
     db.bolumler.push({
       id: VARSAYILAN_BOLUM_ID,
-      ad: 'Hammadde Kimya Laboratuvarı',
+      ad: 'Ana Bölüm',
       olusturmaTarihi: new Date().toISOString()
     });
 
