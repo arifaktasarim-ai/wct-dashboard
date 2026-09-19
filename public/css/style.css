@@ -1914,11 +1914,14 @@ body.compact-mode .ozet-stat-card {
   color: var(--text-muted);
 }
 
-.login-box input {
+.login-box input,
+.login-box select {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 14px;
+  font-family: inherit;
+  background: #fff;
 }
 
 .login-hata {

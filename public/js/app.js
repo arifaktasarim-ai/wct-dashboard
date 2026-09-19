@@ -239,22 +239,29 @@ function initLoginForm() {
       location.reload();
     });
   }
+  loadBolumSecenekleri();
   const form = document.getElementById('loginForm');
   if (!form) return;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const bolumId = document.getElementById('loginBolumId').value;
     const kullaniciAdi = document.getElementById('loginKullaniciAdi').value.trim();
     const sifre = document.getElementById('loginSifre').value;
     const hataBox = document.getElementById('loginHata');
     const btn = document.getElementById('loginBtn');
     hataBox.style.display = 'none';
+    if (!bolumId) {
+      hataBox.textContent = '⚠ Lütfen bir bölüm seçin.';
+      hataBox.style.display = 'block';
+      return;
+    }
     btn.disabled = true;
     btn.textContent = 'Giriş yapılıyor…';
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kullaniciAdi, sifre })
+        body: JSON.stringify({ bolumId, kullaniciAdi, sifre })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Giriş başarısız.');
@@ -267,6 +274,21 @@ function initLoginForm() {
       btn.textContent = 'Giriş Yap';
     }
   });
+}
+
+async function loadBolumSecenekleri() {
+  const select = document.getElementById('loginBolumId');
+  if (!select) return;
+  try {
+    const res = await fetch('/api/bolumler');
+    const bolumler = await res.json();
+    const oncekiDeger = select.value;
+    select.innerHTML = '<option value="">Bölüm seçiniz…</option>' +
+      bolumler.map(b => `<option value="${b.id}">${escapeHtml(b.ad)}</option>`).join('');
+    if (oncekiDeger) select.value = oncekiDeger;
+  } catch (err) {
+    console.error('[loadBolumSecenekleri] Bölümler alınamadı:', err);
+  }
 }
 
 // Eski (4 seviyeli) rol isimleriyle gelen bir oturum varsa (tarayici onbellegi
@@ -288,11 +310,18 @@ function applyRolBasedUI() {
   // kontrolcu rolundeki kisiler ise sadece SILME arayuzunu gormemeli; CSS bu
   // data-user-role ozniteligine gore ilgili butonlari/formlari gizler (bkz. style.css)
   const userNameEl = document.getElementById('currentUserName');
-  if (userNameEl) userNameEl.textContent = currentUser ? `${currentUser.ad} (${ROL_ETIKET[rol] || rol})` : '';
+  const bolumAdi = currentUser && currentUser.bolum ? currentUser.bolum.ad : '';
+  if (userNameEl) {
+    userNameEl.textContent = currentUser
+      ? `${currentUser.ad} (${ROL_ETIKET[rol] || rol})${bolumAdi ? ' — ' + bolumAdi : ''}`
+      : '';
+  }
 
-  // "Kullanıcı Yönetimi" sekmesi sadece admin'e gorunur.
+  // "Kullanıcı Yönetimi" ve "Bölüm Yönetimi" sekmeleri sadece admin'e gorunur.
   const kullaniciTab = document.querySelector('.tab-btn[data-tab="kullanicilar"]');
   if (kullaniciTab) kullaniciTab.style.display = rol === 'admin' ? '' : 'none';
+  const bolumTab = document.querySelector('.tab-btn[data-tab="bolumler"]');
+  if (bolumTab) bolumTab.style.display = rol === 'admin' ? '' : 'none';
 }
 
 const ROL_ETIKET = { admin: 'Yönetici', kontrolcu: 'Kontrolcü', kullanici: 'Kullanıcı' };
@@ -313,7 +342,8 @@ async function initAppAfterLogin() {
     ['initDuyuruUploads', initDuyuruUploads],
     ['initSktForm', initSktForm],
     ['initPersonelForm', initPersonelForm],
-    ['initAyarlarForm', initAyarlarForm]
+    ['initAyarlarForm', initAyarlarForm],
+    ['initBolumOlusturForm', initBolumOlusturForm]
   ];
   steps.forEach(([name, fn]) => {
     try {
@@ -386,6 +416,7 @@ function reloadCurrentTab() {
   if (state.category === 'organizasyon') { return; }
   if (state.category === 'ayarlar') { return; }
   if (state.category === 'kullanicilar') { return; }
+  if (state.category === 'bolumler') { return; }
   if (state.category === 'ozet') { renderOzet(); return; }
   if (state.category === 'gunluk') { loadAllCategoriesAndRender(); return; }
 }
@@ -394,9 +425,10 @@ function initTabs() {
   const tabButtons = document.querySelectorAll('.tab-btn');
   tabButtons.forEach(btn => {
     btn.addEventListener('click', () => {
-      // "Kullanıcı Yönetimi" sekmesi yalnizca admin icindir; sunucu zaten
-      // API seviyesinde bunu zorunlu kilar, bu sadece arayuz guvencesidir.
-      if (btn.dataset.tab === 'kullanicilar' && !isAdmin()) return;
+      // "Kullanıcı Yönetimi" ve "Bölüm Yönetimi" sekmeleri yalnizca admin
+      // icindir; sunucu zaten API seviyesinde bunu zorunlu kilar, bu
+      // sadece arayuz guvencesidir.
+      if ((btn.dataset.tab === 'kullanicilar' || btn.dataset.tab === 'bolumler') && !isAdmin()) return;
 
       tabButtons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
@@ -422,6 +454,8 @@ function initTabs() {
         if (bildirimSelect) fillPersonelSelect(bildirimSelect, localStorage.getItem(MY_PERSONEL_ID_KEY) || '');
       } else if (state.category === 'kullanicilar') {
         renderKullaniciYonetimiTable();
+      } else if (state.category === 'bolumler') {
+        renderBolumYonetimi();
       } else if (state.category === 'ozet') {
         renderOzet();
       } else if (state.category === 'gunluk') {
@@ -914,7 +948,70 @@ function renderKullaniciYonetimiTable() {
   });
 }
 
-// ================== GUNLUK KATEGORI VERISI ==================
+// ================== BOLUM YONETIMI (sadece admin) ==================
+// Yeni bolum (departman/tesis) olusturma ve mevcut bolumleri listeleme.
+// Her bolum kendi izole verisine (personel, gunluk takip, vb.) sahiptir;
+// giris ekranindaki bolum secimi buradaki listeden beslenir.
+
+async function renderBolumYonetimi() {
+  const container = document.getElementById('bolumYonetimiListe');
+  if (!container) return;
+  container.innerHTML = '<p style="color:#6b7280;font-size:13px;">Yükleniyor…</p>';
+  try {
+    const res = await fetch('/api/bolumler');
+    const bolumler = await res.json();
+    if (bolumler.length === 0) {
+      container.innerHTML = '<p style="color:#6b7280;font-size:13px;">Henüz bölüm yok.</p>';
+      return;
+    }
+    container.innerHTML = `
+      <table class="actions-table">
+        <thead><tr><th>Bölüm Adı</th></tr></thead>
+        <tbody>
+          ${bolumler.map(b => `<tr><td>${escapeHtml(b.ad)}${b.id === (currentUser && currentUser.bolum && currentUser.bolum.id) ? ' <span class="badge" style="background:#dbeafe;color:#1e40af;">Şu an buradasınız</span>' : ''}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    container.innerHTML = '<p style="color:#b91c1c;font-size:13px;">Bölümler yüklenemedi.</p>';
+  }
+}
+
+function initBolumOlusturForm() {
+  const form = document.getElementById('bolumOlusturForm');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ad = document.getElementById('yeniBolumAdi').value.trim();
+    const yoneticiKullaniciAdi = document.getElementById('yeniBolumYoneticiKullaniciAdi').value.trim();
+    const yoneticiSifre = document.getElementById('yeniBolumYoneticiSifre').value;
+    const hataBox = document.getElementById('bolumOlusturHata');
+    const btn = document.getElementById('bolumOlusturBtn');
+    hataBox.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Oluşturuluyor…';
+    try {
+      const res = await fetch('/api/bolumler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ad, yoneticiKullaniciAdi, yoneticiSifre })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Bölüm oluşturulamadı.');
+      form.reset();
+      showToast(`"${ad}" bölümü oluşturuldu.`);
+      renderBolumYonetimi();
+    } catch (err) {
+      hataBox.textContent = '⚠ ' + err.message;
+      hataBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Bölüm Oluştur';
+    }
+  });
+}
+
+
 
 function daysInMonth(year, month) {
   return new Date(year, month, 0).getDate();

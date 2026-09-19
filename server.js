@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-18-personkayit2';
+const APP_VERSION = 'v2026-09-19-bolumler';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -184,7 +184,7 @@ const CATEGORIES = [
   'kalibrasyon'
 ];
 
-function defaultDB() {
+function defaultBolumVerisi() {
   return {
     guvenlik: {},
     kalite: {},
@@ -251,8 +251,6 @@ function defaultDB() {
       ]
     },
 
-    sessions: [],
-
     auditLog: [],
 
     departmanlar: [
@@ -274,12 +272,12 @@ function defaultDB() {
 }
 
 // ============================================================
-// DB NORMALIZE
-// Eski db.json yapisiyla uyumluluk
+// BOLUM VERISI NORMALIZE
+// Eski db.json yapisiyla uyumluluk (bir bolumun kendi verisi icin)
 // ============================================================
 
-function normalizeDB(parsed) {
-  const def = defaultDB();
+function normalizeBolumVerisi(parsed) {
+  const def = defaultBolumVerisi();
 
   parsed = parsed || {};
 
@@ -329,8 +327,6 @@ function normalizeDB(parsed) {
 
   merged.sktTakip = parsed.sktTakip || [];
 
-  merged.sessions = parsed.sessions || [];
-
   merged.auditLog = parsed.auditLog || [];
 
   merged.departmanlar =
@@ -357,9 +353,77 @@ function normalizeDB(parsed) {
 }
 
 // ============================================================
-// SUPABASE'DEN DB YUKLE
+// GLOBAL DB NORMALIZE
+// Bolumler + oturumlar + her bolumun kendi verisi.
+//
+// ONEMLI: Eskiden (tek bolumlu donemde) tum veri (guvenlik, kalite,
+// personel, katilim, sessions vb.) dogrudan en ust seviyedeydi. Asagidaki
+// blok, "bolumVerileri" alani hic yoksa bunun eski/duz bir kayit oldugunu
+// anlar ve TUM mevcut veriyi kaybetmeden tek seferlik olarak "Ana Bölüm"
+// adinda bir bolume tasir. Bu gecis her sunucu aciliminda kontrol edilir
+// ama sadece bir kez calisir (bolumVerileri bir kere olusunca bir daha bu
+// dala girilmez).
 // ============================================================
 
+const VARSAYILAN_BOLUM_ID = 'bolum-varsayilan';
+
+function normalizeGlobalDB(parsed) {
+  parsed = parsed || {};
+
+  if (!parsed.bolumVerileri) {
+    const eskiBolumAdi =
+      (parsed.ayarlar && parsed.ayarlar.bolumAdi && parsed.ayarlar.bolumAdi.trim()) ||
+      'Ana Bölüm';
+
+    const eskiSessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+
+    // "sessions" disindaki her sey bolume ozel veridir; oldugu gibi tasinir.
+    const {
+      sessions,
+      ...bolumVerisiKismi
+    } = parsed;
+
+    console.log('   Eski (tek bölümlü) veri yapısı tespit edildi.');
+    console.log(`   Tüm mevcut veriler "${eskiBolumAdi}" adlı bölüme taşınıyor...`);
+
+    return {
+      bolumler: [
+        {
+          id: VARSAYILAN_BOLUM_ID,
+          ad: eskiBolumAdi,
+          olusturmaTarihi: new Date().toISOString()
+        }
+      ],
+      sessions: eskiSessions.map(s => ({
+        ...s,
+        bolumId: s.bolumId || VARSAYILAN_BOLUM_ID
+      })),
+      bolumVerileri: {
+        [VARSAYILAN_BOLUM_ID]: normalizeBolumVerisi(bolumVerisiKismi)
+      }
+    };
+  }
+
+  const merged = {
+    bolumler: Array.isArray(parsed.bolumler) ? parsed.bolumler : [],
+    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    bolumVerileri: {}
+  };
+
+  const kaynakVeriler = parsed.bolumVerileri || {};
+
+  merged.bolumler.forEach(bolum => {
+    merged.bolumVerileri[bolum.id] = normalizeBolumVerisi(
+      kaynakVeriler[bolum.id]
+    );
+  });
+
+  return merged;
+}
+
+// ============================================================
+// SUPABASE'DEN DB YUKLE
+// ============================================================
 async function loadDB() {
   const result = await pool.query(
     `
@@ -375,7 +439,11 @@ async function loadDB() {
     console.log('Supabase: dashboard_data kaydi bulunamadi.');
     console.log('Yeni varsayilan veritabani olusturuluyor...');
 
-    const initial = defaultDB();
+    const initial = {
+      bolumler: [],
+      sessions: [],
+      bolumVerileri: {}
+    };
 
     await pool.query(
       `
@@ -393,18 +461,26 @@ async function loadDB() {
     return dbCache;
   }
 
-  dbCache = normalizeDB(result.rows[0].data);
+  const mevcutData = result.rows[0].data;
+  const eskiYapi = !mevcutData.bolumVerileri;
+
+  dbCache = normalizeGlobalDB(mevcutData);
 
   console.log('Supabase: mevcut dashboard verileri yuklendi.');
+
+  if (eskiYapi) {
+    await persistDbCache();
+    console.log('Supabase: eski tek bolumlu veri yeni bolum yapisina kalici olarak donusturuldu.');
+  }
 
   return dbCache;
 }
 
 // ============================================================
-// DB OKUMA
+// DB OKUMA (GLOBAL - bolumler listesi + oturumlar)
 // ============================================================
 
-function readDB() {
+function readGlobalDB() {
   if (!dbCache) {
     throw new Error(
       'Veritabani henuz yuklenmedi. Sunucu baslatma islemi tamamlanmamis.'
@@ -415,12 +491,29 @@ function readDB() {
 }
 
 // ============================================================
-// DB YAZMA
+// DB OKUMA (BOLUME OZEL)
 // ============================================================
 
-function writeDB(db) {
-  dbCache = normalizeDB(db);
+function readDB(bolumId) {
+  const db = readGlobalDB();
 
+  db.bolumVerileri = db.bolumVerileri || {};
+
+  if (!bolumId || !db.bolumVerileri[bolumId]) {
+    // Beklenmedik durum: gecerli bir bolum olmadan buraya gelinmemeli
+    // (oturum ortasindaki middleware bunu zaten garanti eder). Yine de
+    // veri kaybini onlemek icin bos bir bolum verisiyle devam ediyoruz.
+    db.bolumVerileri[bolumId] = defaultBolumVerisi();
+  }
+
+  return db.bolumVerileri[bolumId];
+}
+
+// ============================================================
+// DB YAZMA (SUPABASE'E KAYDET)
+// ============================================================
+
+function persistDbCache() {
   const dataToSave = JSON.stringify(dbCache);
 
   dbWriteQueue = dbWriteQueue
@@ -445,6 +538,21 @@ function writeDB(db) {
 }
 
 // ============================================================
+// DB YAZMA (BOLUME OZEL)
+// ============================================================
+
+function writeDB(db, bolumId) {
+  if (!bolumId) {
+    throw new Error('writeDB: bolumId belirtilmeli.');
+  }
+
+  dbCache.bolumVerileri = dbCache.bolumVerileri || {};
+  dbCache.bolumVerileri[bolumId] = normalizeBolumVerisi(db);
+
+  return persistDbCache();
+}
+
+// ============================================================
 // SESSION / CURRENT USER
 // ============================================================
 
@@ -454,19 +562,25 @@ app.use((req, res, next) => {
 
   if (token) {
     try {
-      const db = readDB();
+      const db = readGlobalDB();
 
       const session = (db.sessions || []).find(
         s => s.token === token
       );
 
       if (session) {
-        const user = (db.personel || []).find(
-          p => p.id === session.personelId
-        );
+        const bolumVerisi =
+          (db.bolumVerileri || {})[session.bolumId];
+
+        const user =
+          bolumVerisi &&
+          (bolumVerisi.personel || []).find(
+            p => p.id === session.personelId
+          );
 
         if (user) {
           req.currentUser = user;
+          req.currentBolumId = session.bolumId;
         }
       }
     } catch {
@@ -478,19 +592,44 @@ app.use((req, res, next) => {
 });
 
 // ============================================================
+// BOLUMLER (herkese acik liste - giris ekraninda kullanilir)
+// ============================================================
+
+app.get('/api/bolumler', (req, res) => {
+  const db = readGlobalDB();
+
+  res.json(
+    (db.bolumler || []).map(b => ({
+      id: b.id,
+      ad: b.ad
+    }))
+  );
+});
+
+// ============================================================
 // LOGIN
 // ============================================================
 
 app.post('/api/auth/login', async (req, res) => {
   try {
     const {
+      bolumId,
       kullaniciAdi,
       sifre
     } = req.body || {};
 
-    const db = readDB();
+    const db = readGlobalDB();
 
-    const user = (db.personel || []).find(
+    const bolumVerisi =
+      bolumId && (db.bolumVerileri || {})[bolumId];
+
+    if (!bolumVerisi) {
+      return res.status(400).json({
+        error: 'Geçersiz bölüm seçimi.'
+      });
+    }
+
+    const user = (bolumVerisi.personel || []).find(
       p =>
         p.kullaniciAdi &&
         p.kullaniciAdi
@@ -522,15 +661,19 @@ app.post('/api/auth/login', async (req, res) => {
     db.sessions.push({
       token,
       personelId: user.id,
+      bolumId,
       createdAt: new Date().toISOString()
     });
 
-    await writeDB(db);
+    await persistDbCache();
 
     res.setHeader(
       'Set-Cookie',
       `wct_session=${token}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax`
     );
+
+    const bolum =
+      (db.bolumler || []).find(b => b.id === bolumId);
 
     res.json({
       ok: true,
@@ -538,7 +681,10 @@ app.post('/api/auth/login', async (req, res) => {
         id: user.id,
         ad: user.ad,
         rol: user.rol,
-        kullaniciAdi: user.kullaniciAdi
+        kullaniciAdi: user.kullaniciAdi,
+        bolum: bolum
+          ? { id: bolum.id, ad: bolum.ad }
+          : null
       }
     });
   } catch (err) {
@@ -560,12 +706,12 @@ app.post('/api/auth/logout', async (req, res) => {
     const token = cookies['wct_session'];
 
     if (token) {
-      const db = readDB();
+      const db = readGlobalDB();
 
       db.sessions = (db.sessions || [])
         .filter(s => s.token !== token);
 
-      await writeDB(db);
+      await persistDbCache();
     }
 
     res.setHeader(
@@ -598,11 +744,20 @@ app.get('/api/auth/me', (req, res) => {
 
   const u = req.currentUser;
 
+  const globalDb = readGlobalDB();
+  const bolum =
+    (globalDb.bolumler || []).find(
+      b => b.id === req.currentBolumId
+    );
+
   res.json({
     id: u.id,
     ad: u.ad,
     rol: u.rol,
-    kullaniciAdi: u.kullaniciAdi
+    kullaniciAdi: u.kullaniciAdi,
+    bolum: bolum
+      ? { id: bolum.id, ad: bolum.ad }
+      : null
   });
 });
 
@@ -613,7 +768,8 @@ app.get('/api/auth/me', (req, res) => {
 app.use('/api', (req, res, next) => {
   if (
     req.path.startsWith('/auth/') ||
-    req.path === '/version'
+    req.path === '/version' ||
+    (req.method === 'GET' && req.path === '/bolumler')
   ) {
     return next();
   }
@@ -684,6 +840,123 @@ function auditEkle(db, req, islem, detay) {
 }
 
 // ============================================================
+// BOLUM OLUSTURMA (sadece admin)
+// ============================================================
+
+app.post(
+  '/api/bolumler',
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const ad = String(
+        (req.body && req.body.ad) || ''
+      ).trim();
+
+      const yoneticiKullaniciAdi = String(
+        (req.body && req.body.yoneticiKullaniciAdi) || ''
+      ).trim();
+
+      const yoneticiSifre =
+        (req.body && req.body.yoneticiSifre) || '';
+
+      if (!ad) {
+        return res.status(400).json({
+          error: 'Bölüm adı boş olamaz.'
+        });
+      }
+
+      if (!yoneticiKullaniciAdi || !yoneticiSifre) {
+        return res.status(400).json({
+          error:
+            'Yeni bölümün ilk yöneticisi için kullanıcı adı ve şifre girilmelidir.'
+        });
+      }
+
+      if (yoneticiSifre.length < 4) {
+        return res.status(400).json({
+          error: 'Şifre en az 4 karakter olmalıdır.'
+        });
+      }
+
+      const globalDb = readGlobalDB();
+
+      globalDb.bolumler = globalDb.bolumler || [];
+      globalDb.bolumVerileri = globalDb.bolumVerileri || {};
+
+      const adCakisiyor = globalDb.bolumler.some(
+        b => b.ad.toLowerCase() === ad.toLowerCase()
+      );
+
+      if (adCakisiyor) {
+        return res.status(400).json({
+          error: 'Bu isimde bir bölüm zaten var.'
+        });
+      }
+
+      const bolumId =
+        'bolum-' +
+        Date.now().toString() +
+        Math.random().toString(36).slice(2, 6);
+
+      const {
+        salt,
+        hash
+      } = hashPassword(yoneticiSifre);
+
+      const yeniBolumVerisi = defaultBolumVerisi();
+      yeniBolumVerisi.ayarlar.bolumAdi = ad;
+
+      yeniBolumVerisi.personel.push({
+        id: Date.now().toString(),
+        ad: 'Bölüm Yöneticisi',
+        departman: '',
+        unvan: '',
+        fotoBase64: '',
+        sorumluluklar: [],
+        kullaniciAdi: yoneticiKullaniciAdi,
+        rol: 'admin',
+        sifreSalt: salt,
+        sifreHash: hash
+      });
+
+      globalDb.bolumler.push({
+        id: bolumId,
+        ad,
+        olusturmaTarihi: new Date().toISOString()
+      });
+
+      globalDb.bolumVerileri[bolumId] = yeniBolumVerisi;
+
+      // Bu islemi yapan admin'in KENDI bolumunun audit logina da yazilir.
+      const kendiBolumDb =
+        globalDb.bolumVerileri[req.currentBolumId];
+
+      if (kendiBolumDb) {
+        auditEkle(
+          kendiBolumDb,
+          req,
+          'Yeni bölüm oluşturuldu',
+          ad
+        );
+      }
+
+      await persistDbCache();
+
+      res.json({
+        id: bolumId,
+        ad
+      });
+    } catch (err) {
+      console.error('BOLUM OLUSTURMA HATASI:', err);
+
+      res.status(500).json({
+        error: 'Bölüm oluşturulamadı.'
+      });
+    }
+  }
+);
+
+// ============================================================
 // GUNLUK KATEGORI VERILERI
 // ============================================================
 
@@ -701,7 +974,7 @@ app.get(
       });
     }
 
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     const data =
       (
@@ -730,7 +1003,7 @@ app.post(
         });
       }
 
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       if (!db[category][yearMonth]) {
         db[category][yearMonth] = {};
@@ -771,7 +1044,7 @@ app.post(
         `${yearMonth} ayı, ${day}. gün`
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json(
         db[category][yearMonth][day]
@@ -806,7 +1079,7 @@ app.delete(
         });
       }
 
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const existing =
         (
@@ -836,7 +1109,7 @@ app.delete(
         `${yearMonth} ayı, ${day}. gün`
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json({
         ok: true
@@ -859,7 +1132,7 @@ app.delete(
 // ============================================================
 
 app.get('/api/personel', (req, res) => {
-  const db = readDB();
+  const db = readDB(req.currentBolumId);
 
   const safeList =
     (db.personel || []).map(
@@ -878,7 +1151,7 @@ app.post(
   requireRole('admin'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const newPerson = {
         id: Date.now().toString(),
@@ -948,7 +1221,7 @@ app.post(
           )
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       const {
         sifreHash,
@@ -975,7 +1248,7 @@ app.put(
   requireRole('admin'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const idx =
         (db.personel || []).findIndex(
@@ -1071,7 +1344,7 @@ app.put(
         db.personel[idx].ad
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       const {
         sifreHash,
@@ -1098,7 +1371,7 @@ app.delete(
   requireRole('admin'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const kisi =
         (db.personel || []).find(
@@ -1112,8 +1385,12 @@ app.delete(
             p.id !== req.params.id
         );
 
-      db.sessions =
-        (db.sessions || []).filter(
+      // Silinen personelin oturumlari global oturum listesinden
+      // ayrica temizlenir (oturumlar artik bolume ozel degil).
+      const globalDb = readGlobalDB();
+
+      globalDb.sessions =
+        (globalDb.sessions || []).filter(
           s =>
             s.personelId !==
             req.params.id
@@ -1128,7 +1405,7 @@ app.delete(
           : req.params.id
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json({
         ok: true
@@ -1153,7 +1430,7 @@ app.delete(
 app.get(
   '/api/departmanlar',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.departmanlar || []
@@ -1176,7 +1453,7 @@ app.post(
       });
     }
 
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     db.departmanlar =
       db.departmanlar || [];
@@ -1197,7 +1474,7 @@ app.post(
         ad
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
     }
 
     res.json(
@@ -1210,7 +1487,7 @@ app.delete(
   '/api/departmanlar/:ad',
   requireRole('admin'),
   async (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     db.departmanlar =
       (db.departmanlar || []).filter(
@@ -1225,7 +1502,7 @@ app.delete(
       req.params.ad
     );
 
-    await writeDB(db);
+    await writeDB(db, req.currentBolumId);
 
     res.json(
       db.departmanlar
@@ -1240,7 +1517,7 @@ app.delete(
 app.get(
   '/api/unvanlar',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.unvanlar || []
@@ -1263,7 +1540,7 @@ app.post(
       });
     }
 
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     db.unvanlar =
       db.unvanlar || [];
@@ -1284,7 +1561,7 @@ app.post(
         ad
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
     }
 
     res.json(
@@ -1297,7 +1574,7 @@ app.delete(
   '/api/unvanlar/:ad',
   requireRole('admin'),
   async (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     db.unvanlar =
       (db.unvanlar || []).filter(
@@ -1312,7 +1589,7 @@ app.delete(
       req.params.ad
     );
 
-    await writeDB(db);
+    await writeDB(db, req.currentBolumId);
 
     res.json(
       db.unvanlar
@@ -1328,7 +1605,7 @@ app.get(
   '/api/audit',
   requireRole('admin'),
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.auditLog || []
@@ -1343,7 +1620,7 @@ app.get(
 app.get(
   '/api/ayarlar',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.ayarlar || {
@@ -1357,14 +1634,14 @@ app.post(
   '/api/ayarlar',
   requireRole('admin'),
   async (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     db.ayarlar = {
       ...db.ayarlar,
       ...req.body
     };
 
-    await writeDB(db);
+    await writeDB(db, req.currentBolumId);
 
     res.json(
       db.ayarlar
@@ -1379,7 +1656,7 @@ app.post(
 app.get(
   '/api/duyurular',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.duyurular || {}
@@ -1391,14 +1668,14 @@ app.post(
   '/api/duyurular',
   requireRole('kontrolcu'),
   async (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     db.duyurular = {
       ...db.duyurular,
       ...req.body
     };
 
-    await writeDB(db);
+    await writeDB(db, req.currentBolumId);
 
     res.json(
       db.duyurular
@@ -1413,7 +1690,7 @@ app.post(
 app.get(
   '/api/skt',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.sktTakip || []
@@ -1425,7 +1702,7 @@ app.post(
   '/api/skt',
   requireRole('kontrolcu'),
   async (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     const newItem = {
       id: Date.now().toString(),
@@ -1445,7 +1722,7 @@ app.post(
       newItem
     );
 
-    await writeDB(db);
+    await writeDB(db, req.currentBolumId);
 
     res.json(newItem);
   }
@@ -1455,7 +1732,7 @@ app.delete(
   '/api/skt/:id',
   requireRole('admin'),
   async (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     db.sktTakip =
       (db.sktTakip || []).filter(
@@ -1463,7 +1740,7 @@ app.delete(
           s.id !== req.params.id
       );
 
-    await writeDB(db);
+    await writeDB(db, req.currentBolumId);
 
     res.json({
       ok: true
@@ -1478,7 +1755,7 @@ app.delete(
 app.get(
   '/api/actions',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.aksiyonlar || []
@@ -1490,7 +1767,7 @@ app.post(
   '/api/actions',
   requireRole('kontrolcu'),
   async (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     const newAction = {
       id: Date.now().toString(),
@@ -1517,7 +1794,7 @@ app.post(
       newAction.baslik
     );
 
-    await writeDB(db);
+    await writeDB(db, req.currentBolumId);
 
     res.json(newAction);
   }
@@ -1528,7 +1805,7 @@ app.put(
   requireRole('kontrolcu'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const idx =
         (db.aksiyonlar || []).findIndex(
@@ -1554,7 +1831,7 @@ app.put(
         db.aksiyonlar[idx].baslik || req.params.id
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json(db.aksiyonlar[idx]);
     } catch (err) {
@@ -1572,7 +1849,7 @@ app.delete(
   requireRole('admin'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const action =
         (db.aksiyonlar || []).find(
@@ -1593,7 +1870,7 @@ app.delete(
           : req.params.id
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json({
         ok: true
@@ -1615,7 +1892,7 @@ app.delete(
 app.get(
   '/api/notlar',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.toplantiNotlari || []
@@ -1628,7 +1905,7 @@ app.post(
   requireRole('kontrolcu'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const newNote = {
         id: Date.now().toString(),
@@ -1653,7 +1930,7 @@ app.post(
         newNote.baslik
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json(newNote);
     } catch (err) {
@@ -1674,7 +1951,7 @@ app.put(
   requireRole('kontrolcu'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const idx =
         (db.toplantiNotlari || []).findIndex(
@@ -1701,7 +1978,7 @@ app.put(
           req.params.id
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json(
         db.toplantiNotlari[idx]
@@ -1724,7 +2001,7 @@ app.delete(
   requireRole('admin'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const note =
         (db.toplantiNotlari || []).find(
@@ -1745,7 +2022,7 @@ app.delete(
           : req.params.id
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json({
         ok: true
@@ -1770,7 +2047,7 @@ app.delete(
 app.get(
   '/api/katilim/:yearMonth/:day',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     const yearMonth = req.params.yearMonth;
     const day = String(Number(req.params.day));
@@ -1785,7 +2062,7 @@ app.get(
 app.get(
   '/api/katilim/:yearMonth',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       (db.katilim || {})[req.params.yearMonth] || {}
@@ -1798,7 +2075,7 @@ app.post(
   requireRole('kontrolcu'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       db.katilim =
         db.katilim || {};
@@ -1819,7 +2096,7 @@ app.post(
         `${yearMonth}/${day}`
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json(
         db.katilim[yearMonth][day]
@@ -1840,7 +2117,7 @@ app.post(
 app.get(
   '/api/all-katilim',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.katilim || {}
@@ -1865,7 +2142,7 @@ app.get(
       });
     }
 
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db[category] || {}
@@ -1880,7 +2157,7 @@ app.get(
 app.get(
   '/api/asd-sapma',
   (req, res) => {
-    const db = readDB();
+    const db = readDB(req.currentBolumId);
 
     res.json(
       db.asdSapmaKayitlari || []
@@ -1893,7 +2170,7 @@ app.post(
   requireRole('kontrolcu'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const kayit = {
         id: Date.now().toString(),
@@ -1914,7 +2191,7 @@ app.post(
         kayit.id
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json(kayit);
     } catch (err) {
@@ -1935,7 +2212,7 @@ app.put(
   requireRole('kontrolcu'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       const idx =
         (db.asdSapmaKayitlari || []).findIndex(
@@ -1961,7 +2238,7 @@ app.put(
         req.params.id
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json(
         db.asdSapmaKayitlari[idx]
@@ -1984,7 +2261,7 @@ app.delete(
   requireRole('admin'),
   async (req, res) => {
     try {
-      const db = readDB();
+      const db = readDB(req.currentBolumId);
 
       db.asdSapmaKayitlari =
         (db.asdSapmaKayitlari || []).filter(
@@ -1998,7 +2275,7 @@ app.delete(
         req.params.id
       );
 
-      await writeDB(db);
+      await writeDB(db, req.currentBolumId);
 
       res.json({
         ok: true
@@ -2017,50 +2294,81 @@ app.delete(
 );
 
 // ============================================================
-// ILK ADMIN
+// ILK BOLUM VE ILK ADMIN
 // ============================================================
 
-function ensureInitialAdmin(db) {
-  db.personel = db.personel || [];
+function ensureInitialBolumVeAdmin(db) {
+  db.bolumler = db.bolumler || [];
+  db.bolumVerileri = db.bolumVerileri || {};
 
-  const adminExists =
-    db.personel.some(
-      p =>
-        p.rol === 'admin' &&
-        p.kullaniciAdi
-    );
+  let degisti = false;
 
-  if (adminExists) {
-    return false;
+  // Hic bolum yoksa (tamamen yeni kurulum), varsayilan bir tane olustur.
+  if (db.bolumler.length === 0) {
+    db.bolumler.push({
+      id: VARSAYILAN_BOLUM_ID,
+      ad: 'Ana Bölüm',
+      olusturmaTarihi: new Date().toISOString()
+    });
+
+    degisti = true;
   }
 
-  /*
-   * Eğer eski db.json içinde personel varsa
-   * mevcut kayıtları koruyoruz.
-   *
-   * Hiç admin yoksa sadece güvenli bir ilk admin
-   * oluşturuyoruz.
-   */
+  db.bolumler.forEach(bolum => {
+    db.bolumVerileri[bolum.id] =
+      db.bolumVerileri[bolum.id] || defaultBolumVerisi();
 
-  const {
-    salt,
-    hash
-  } = hashPassword('admin123');
+    const bolumDb = db.bolumVerileri[bolum.id];
 
-  db.personel.push({
-    id: Date.now().toString(),
-    ad: 'Sistem Yöneticisi',
-    departman: 'Hammadde Laboratuvarı',
-    unvan: 'Bölüm Sorumlusu',
-    fotoBase64: '',
-    sorumluluklar: [],
-    kullaniciAdi: 'admin',
-    rol: 'admin',
-    sifreSalt: salt,
-    sifreHash: hash
+    bolumDb.personel = bolumDb.personel || [];
+
+    const adminVar =
+      bolumDb.personel.some(
+        p =>
+          p.rol === 'admin' &&
+          p.kullaniciAdi
+      );
+
+    if (adminVar) {
+      return;
+    }
+
+    /*
+     * Eğer bu bölümün verisinde personel varsa
+     * mevcut kayıtları koruyoruz.
+     *
+     * Hiç admin yoksa sadece güvenli bir ilk admin
+     * oluşturuyoruz.
+     */
+
+    const {
+      salt,
+      hash
+    } = hashPassword('admin123');
+
+    bolumDb.personel.push({
+      id:
+        Date.now().toString() +
+        Math.random().toString(36).slice(2, 6),
+      ad: 'Sistem Yöneticisi',
+      departman: 'Hammadde Laboratuvarı',
+      unvan: 'Bölüm Sorumlusu',
+      fotoBase64: '',
+      sorumluluklar: [],
+      kullaniciAdi: 'admin',
+      rol: 'admin',
+      sifreSalt: salt,
+      sifreHash: hash
+    });
+
+    console.log(
+      `   [${bolum.ad}] için ilk admin oluşturuldu (kullanıcı: admin, şifre: admin123)`
+    );
+
+    degisti = true;
   });
 
-  return true;
+  return degisti;
 }
 
 // ============================================================
@@ -2142,29 +2450,20 @@ async function startServer() {
     );
 
     console.log(
-      '3) İlk admin kontrol ediliyor...'
+      '3) İlk bölüm/admin kontrol ediliyor...'
     );
 
-    const db = readDB();
+    const globalDb = readGlobalDB();
 
-    if (ensureInitialAdmin(db)) {
-      await writeDB(db);
+    if (ensureInitialBolumVeAdmin(globalDb)) {
+      await persistDbCache();
 
       console.log(
-        '   İlk admin oluşturuldu.'
-      );
-      console.log(
-        '   Kullanıcı adı: admin'
-      );
-      console.log(
-        '   Şifre: admin123'
-      );
-      console.log(
-        '   NOT: İlk girişten sonra şifreyi değiştirin.'
+        '   Eksik bölüm/admin tamamlandı (yeni kurulumda varsayılan: kullanıcı admin, şifre admin123).'
       );
     } else {
       console.log(
-        '   Mevcut admin bulundu.'
+        '   Mevcut bölüm(ler) ve admin(ler) bulundu.'
       );
     }
 

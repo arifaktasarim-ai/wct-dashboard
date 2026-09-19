@@ -16,6 +16,11 @@
     <h1>WCT Günlük Yönetim Panosu</h1>
     <p class="login-sub">Devam etmek için giriş yapın</p>
     <form id="loginForm">
+      <label>Bölüm
+        <select id="loginBolumId" required>
+          <option value="">Bölüm seçiniz…</option>
+        </select>
+      </label>
       <label>Kullanıcı Adı
         <input type="text" id="loginKullaniciAdi" autocomplete="username" required>
       </label>
@@ -54,6 +59,7 @@
   <button class="tab-btn" data-tab="organizasyon">Organizasyon</button>
   <button class="tab-btn" data-tab="ayarlar">Ayarlar</button>
   <button class="tab-btn" data-tab="kullanicilar" style="display:none;">Kullanıcı Yönetimi</button>
+  <button class="tab-btn" data-tab="bolumler" style="display:none;">Bölüm Yönetimi</button>
 </nav>
 
 <main id="mainContent">
@@ -497,6 +503,35 @@
       </thead>
       <tbody id="kullaniciYonetimiTableBody"></tbody>
     </table>
+  </section>
+
+  <!-- Bolum Yonetimi paneli (sadece admin) -->
+  <section id="grid-bolumler" class="tab-panel actions-panel">
+    <h2>Bölüm Yönetimi</h2>
+    <div class="category-hedef">
+      Her bölümün kendi personeli, günlük takip verisi ve ayarları vardır —
+      bölümler birbirinden tamamen bağımsızdır. Yeni bir bölüm oluşturduğunuzda
+      o bölüm için bir yönetici hesabı da belirlemeniz gerekir; giriş yapmak
+      isteyenler giriş ekranında önce bölümü seçip ardından o bölüme ait
+      kullanıcı adı/şifre ile giriş yapar.
+    </div>
+
+    <form id="bolumOlusturForm" class="action-form" style="margin-bottom:18px;">
+      <label>Bölüm Adı
+        <input type="text" id="yeniBolumAdi" required placeholder="Örn. İkinci Şube Laboratuvarı">
+      </label>
+      <label>Yönetici Kullanıcı Adı
+        <input type="text" id="yeniBolumYoneticiKullaniciAdi" required autocomplete="off">
+      </label>
+      <label>Yönetici Şifresi
+        <input type="password" id="yeniBolumYoneticiSifre" required autocomplete="new-password">
+      </label>
+      <div id="bolumOlusturHata" class="login-hata" style="display:none;"></div>
+      <button type="submit" class="btn-primary" id="bolumOlusturBtn" style="width:100%;margin-top:8px;">Bölüm Oluştur</button>
+    </form>
+
+    <div class="modal-field-group-label">Mevcut Bölümler</div>
+    <div id="bolumYonetimiListe"></div>
   </section>
 
 </main>
