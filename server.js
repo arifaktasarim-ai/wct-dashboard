@@ -2307,7 +2307,7 @@ function ensureInitialBolumVeAdmin(db) {
   if (db.bolumler.length === 0) {
     db.bolumler.push({
       id: VARSAYILAN_BOLUM_ID,
-      ad: 'Ana Bölüm',
+      ad: 'Hammadde Kimya Laboratuvarı',
       olusturmaTarihi: new Date().toISOString()
     });
 
