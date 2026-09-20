@@ -1283,11 +1283,20 @@ app.post(
   async (req, res) => {
     try {
       const db = readDB(req.currentBolumId);
+      const globalDb = readGlobalDB();
+
+      const mevcutBolum =
+        (globalDb.bolumler || []).find(
+          b => b.id === req.currentBolumId
+        );
+
+      const departman =
+        mevcutBolum ? mevcutBolum.ad : '';
 
       const newPerson = {
         id: Date.now().toString(),
         ad: req.body.ad || '',
-        departman: req.body.departman || '',
+        departman,
         unvan: req.body.unvan || '',
         fotoBase64: req.body.fotoBase64 || '',
         sorumluluklar:
@@ -1396,6 +1405,16 @@ app.put(
       const body = {
         ...req.body
       };
+
+      const globalDb = readGlobalDB();
+
+      const mevcutBolum =
+        (globalDb.bolumler || []).find(
+          b => b.id === req.currentBolumId
+        );
+
+      body.departman =
+        mevcutBolum ? mevcutBolum.ad : '';
 
       if (body.kullaniciAdi) {
         body.kullaniciAdi =

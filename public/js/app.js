@@ -604,6 +604,18 @@ function initPersonelForm() {
   let pendingFoto; // undefined = degistirilmedi, string = yeni foto secildi
   let sorumluluklarDraft = []; // form uzerinde duzenlenen sorumluluk listesi
 
+  function setCurrentBolumAdi() {
+    const departmanEl = document.getElementById('pDepartman');
+    if (!departmanEl) return;
+
+    const bolumAdi =
+      currentUser && currentUser.bolum
+        ? String(currentUser.bolum.ad || '').trim()
+        : '';
+
+    departmanEl.value = bolumAdi;
+  }
+
   const pFotoEl = document.getElementById('pFoto');
   if (pFotoEl) {
     pFotoEl.addEventListener('change', async (e) => {
@@ -662,6 +674,7 @@ function initPersonelForm() {
       sorumluluklarDraft = [];
       renderSorumlulukChips();
       form.reset();
+      setCurrentBolumAdi();
       document.getElementById('pFotoPreview').style.display = 'none';
       fillUnvanSelect(document.getElementById('pUnvan'));
       form.querySelector('button[type="submit"]').textContent = 'Personel Ekle';
@@ -706,6 +719,7 @@ function initPersonelForm() {
     }
 
     form.reset();
+    setCurrentBolumAdi();
     pendingFoto = undefined;
     sorumluluklarDraft = [];
     renderSorumlulukChips();
@@ -719,6 +733,7 @@ function initPersonelForm() {
     setSorumluluklar(list) { sorumluluklarDraft = Array.isArray(list) ? list.slice() : []; renderSorumlulukChips(); }
   };
   renderSorumlulukChips();
+  setCurrentBolumAdi();
 }
 
 function startEditPerson(id) {
@@ -726,7 +741,7 @@ function startEditPerson(id) {
   if (!p) return;
   state.editingPersonId = id;
   document.getElementById('pAd').value = p.ad || '';
-  document.getElementById('pDepartman').value = p.departman || '';
+  document.getElementById('pDepartman').value = currentUser && currentUser.bolum ? currentUser.bolum.ad : '';
   fillUnvanSelect(document.getElementById('pUnvan'), p.unvan || '');
   if (state.personelFormHelpers) state.personelFormHelpers.setSorumluluklar(p.sorumluluklar || []);
   const preview = document.getElementById('pFotoPreview');
