@@ -617,6 +617,8 @@ function initPersonelForm() {
   }
 
   const pFotoEl = document.getElementById('pFoto');
+  const pFotoSilBtn = document.getElementById('pFotoSilBtn');
+
   if (pFotoEl) {
     pFotoEl.addEventListener('change', async (e) => {
       const file = e.target.files[0];
@@ -625,6 +627,18 @@ function initPersonelForm() {
       const preview = document.getElementById('pFotoPreview');
       preview.src = pendingFoto;
       preview.style.display = 'inline-block';
+      if (pFotoSilBtn) pFotoSilBtn.style.display = 'inline-block';
+    });
+  }
+
+  if (pFotoSilBtn) {
+    pFotoSilBtn.addEventListener('click', () => {
+      pendingFoto = '';
+      if (pFotoEl) pFotoEl.value = '';
+      const preview = document.getElementById('pFotoPreview');
+      preview.src = '';
+      preview.style.display = 'none';
+      pFotoSilBtn.style.display = 'none';
     });
   }
 
@@ -675,7 +689,9 @@ function initPersonelForm() {
       renderSorumlulukChips();
       form.reset();
       setCurrentBolumAdi();
+      document.getElementById('pFotoPreview').src = '';
       document.getElementById('pFotoPreview').style.display = 'none';
+      if (pFotoSilBtn) pFotoSilBtn.style.display = 'none';
       fillUnvanSelect(document.getElementById('pUnvan'));
       form.querySelector('button[type="submit"]').textContent = 'Personel Ekle';
       cancelBtn.style.display = 'none';
@@ -723,7 +739,9 @@ function initPersonelForm() {
     pendingFoto = undefined;
     sorumluluklarDraft = [];
     renderSorumlulukChips();
+    document.getElementById('pFotoPreview').src = '';
     document.getElementById('pFotoPreview').style.display = 'none';
+    if (pFotoSilBtn) pFotoSilBtn.style.display = 'none';
     await loadPersonelList();
     renderPersonelTable();
   });
@@ -748,8 +766,11 @@ function startEditPerson(id) {
   if (p.fotoBase64) {
     preview.src = p.fotoBase64;
     preview.style.display = 'inline-block';
+    if (pFotoSilBtn) pFotoSilBtn.style.display = 'inline-block';
   } else {
+    preview.src = '';
     preview.style.display = 'none';
+    if (pFotoSilBtn) pFotoSilBtn.style.display = 'none';
   }
   const form = document.getElementById('personelForm');
   form.querySelector('button[type="submit"]').textContent = 'Personeli Güncelle';
