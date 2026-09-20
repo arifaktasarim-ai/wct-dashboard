@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-19-katilim-yarimgun';
+const APP_VERSION = 'v2026-09-19-katilim-sil';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -2262,6 +2262,51 @@ app.post(
 
       res.status(500).json({
         error: 'Katilim kaydedilemedi.'
+      });
+    }
+  }
+);
+
+app.delete(
+  '/api/katilim/:yearMonth/:day/:personelId',
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const db = readDB(req.currentBolumId);
+
+      db.katilim = db.katilim || {};
+
+      const yearMonth = req.params.yearMonth;
+      const day = String(Number(req.params.day));
+      const personelId = req.params.personelId;
+
+      if (
+        db.katilim[yearMonth] &&
+        db.katilim[yearMonth][day]
+      ) {
+        delete db.katilim[yearMonth][day][personelId];
+      }
+
+      auditEkle(
+        db,
+        req,
+        'Katılım kaydı silindi',
+        `${yearMonth}/${day} - personel ${personelId}`
+      );
+
+      await writeDB(db, req.currentBolumId);
+
+      res.json({
+        ok: true
+      });
+    } catch (err) {
+      console.error(
+        'KATILIM SILME HATASI:',
+        err
+      );
+
+      res.status(500).json({
+        error: 'Katılım kaydı silinemedi.'
       });
     }
   }

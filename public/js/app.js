@@ -1355,6 +1355,7 @@ async function loadAndRenderKatilimTable() {
             const kalanGun = kilit.bitisGunu - state.katilimGun + 1;
             ipucuHtml = `<div class="katilim-extra-hint katilim-locked-hint">🔒 ${escapeHtml(extraHint)} — ${String(kilit.anchorDay).padStart(2, '0')}. günden itibaren kilitli (${kalanGun} gün daha)
               <button type="button" class="katilim-edit-link" data-duzenle-personel="${p.id}" data-duzenle-anchor="${kilit.anchorDay}">Düzenle</button>
+              ${isAdmin() ? `<button type="button" class="katilim-edit-link katilim-delete-link" data-sil-personel="${p.id}" data-sil-anchor="${kilit.anchorDay}">Sil</button>` : ''}
             </div>`;
           } else if (extraHint) {
             ipucuHtml = `<div class="katilim-extra-hint">${escapeHtml(extraHint)}</div>`;
@@ -1395,6 +1396,37 @@ async function loadAndRenderKatilimTable() {
       openIzinRaporPopup(personelId);
     });
   });
+
+  // Kilitli satirlardaki "Sil" butonu: kaydin girildigi gundeki (anchor) izni
+  // dogrudan siler; sadece admin gorur (CSS/backend ile de korunur).
+  wrap.querySelectorAll('[data-sil-personel]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const personelId = btn.dataset.silPersonel;
+      const anchorDay = Number(btn.dataset.silAnchor);
+      await deleteKatilimKaydi(personelId, anchorDay);
+    });
+  });
+}
+
+// Bir personelin, belirtilen gundeki katilim/izin kaydini kalici olarak siler
+// (sadece admin cagirabilir; buton zaten sadece admin'e gosteriliyor, ayrica
+// sunucu tarafinda da requireRole('admin') ile korunuyor).
+async function deleteKatilimKaydi(personelId, gun) {
+  const p = state.personelList.find(x => x.id === personelId);
+  const adSoyad = p ? p.ad : 'bu personel';
+  if (!confirm(`${adSoyad} için ${String(gun).padStart(2, '0')}. güne girilmiş izin kaydını silmek istediğinize emin misiniz?`)) return;
+  const yearMonth = `${state.year}-${String(state.month).padStart(2, '0')}`;
+  try {
+    const res = await fetch(`/api/katilim/${yearMonth}/${gun}/${personelId}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Kayıt silinemedi.');
+    }
+    showToast('İzin kaydı silindi.');
+    await loadAndRenderKatilimTable();
+  } catch (err) {
+    alert('⚠ ' + err.message);
+  }
 }
 
 function openIzinRaporPopup(personelId) {
@@ -1433,7 +1465,9 @@ function openIzinRaporPopup(personelId) {
         </label>
       </div>
       <div class="modal-footer">
-        <span></span>
+        ${isAdmin() && getKatilimDurum(state.katilimData[personelId]) === 'izinli'
+          ? `<button type="button" class="btn-secondary katilim-delete-link" id="izinRaporSilBtn">Sil</button>`
+          : '<span></span>'}
         <button type="button" class="btn-primary" id="izinRaporSaveBtn">Tamam</button>
       </div>
     </div>
@@ -1443,6 +1477,14 @@ function openIzinRaporPopup(personelId) {
   const close = () => overlay.remove();
   overlay.querySelector('.modal-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const silBtn = overlay.querySelector('#izinRaporSilBtn');
+  if (silBtn) {
+    silBtn.addEventListener('click', async () => {
+      close();
+      await deleteKatilimKaydi(personelId, state.katilimGun);
+    });
+  }
 
   // Yarim gunluk (ogleden once/sonra) izin, ileri gunleri kilitlemez; bu
   // yuzden gun sayisi alanlari sadece "Tam Gün" secildiginde gosterilir.
