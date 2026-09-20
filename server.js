@@ -1788,16 +1788,57 @@ app.post(
   requireRole('admin'),
   async (req, res) => {
     const db = readDB(req.currentBolumId);
+    const globalDb = readGlobalDB();
+
+    const yeniBolumAdi =
+      String((req.body && req.body.bolumAdi) || '').trim();
+
+    if (!yeniBolumAdi) {
+      return res.status(400).json({
+        error: 'Bolum adi bos birakilamaz.'
+      });
+    }
+
+    const mevcutBolum =
+      (globalDb.bolumler || []).find(
+        b => b.id === req.currentBolumId
+      );
+
+    if (!mevcutBolum) {
+      return res.status(404).json({
+        error: 'Mevcut bolum bulunamadi.'
+      });
+    }
+
+    const ayniAdliBolum =
+      (globalDb.bolumler || []).some(
+        b =>
+          b.id !== req.currentBolumId &&
+          String(b.ad || '').trim().toLowerCase() ===
+            yeniBolumAdi.toLowerCase()
+      );
+
+    if (ayniAdliBolum) {
+      return res.status(400).json({
+        error: 'Bu isimde baska bir bolum zaten mevcut.'
+      });
+    }
 
     db.ayarlar = {
       ...db.ayarlar,
-      ...req.body
+      ...req.body,
+      bolumAdi: yeniBolumAdi
     };
 
-    await writeDB(db, req.currentBolumId);
+    mevcutBolum.ad = yeniBolumAdi;
+
+    globalDb.bolumVerileri[req.currentBolumId] =
+      normalizeBolumVerisi(db);
+
+    await persistDbCache();
 
     res.json(
-      db.ayarlar
+      globalDb.bolumVerileri[req.currentBolumId].ayarlar
     );
   }
 );
