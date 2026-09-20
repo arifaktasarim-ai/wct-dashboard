@@ -1625,6 +1625,9 @@ function renderDayGrid(category, container, layout, totalDays) {
   html += `<div class="letter-grid-wrapper">`;
   html += `<div class="letter-grid" style="grid-template-columns:repeat(${layout.cols},${CELL}px);grid-template-rows:repeat(${layout.rows},${CELL}px);gap:${GAP}px;">`;
 
+  const role = normalizeRolClient(currentUser ? currentUser.rol : 'kullanici');
+  const canEdit = role === 'kontrolcu' || role === 'admin';
+
   layout.cells.forEach(cell => {
     const disabled = cell.day > totalDays;
     const dayData = state.categoryData[category][cell.day] || {};
@@ -1634,7 +1637,7 @@ function renderDayGrid(category, container, layout, totalDays) {
     html += `<div class="day-cell status-${status} ${disabled ? 'day-cell-disabled' : ''}"
                   style="grid-row:${cell.row + 1};${span}"
                   data-day="${cell.day}"
-                  ${disabled ? '' : `data-clickable="1"`}>
+                  ${disabled || !canEdit ? '' : `data-clickable="1"`}>
                 ${gunAdi ? `<span class="day-weekday">${gunAdi}</span>` : ''}
                 <span class="day-number">${cell.day}</span>
               </div>`;
