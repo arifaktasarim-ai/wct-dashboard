@@ -1414,6 +1414,16 @@ body.compact-mode .ozet-stat-card {
   line-height: 1.5;
 }
 
+.modal-locked-banner {
+  background: var(--red-bg);
+  border-bottom: 1px solid #f3b4ae;
+  color: var(--red);
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 10px 18px;
+  line-height: 1.5;
+}
+
 .modal-verify-box {
   margin: 0 18px 14px 18px;
   padding: 12px 14px;

@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-19-katilim-sil';
+const APP_VERSION = 'v2026-09-21-1';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -1163,6 +1163,65 @@ app.post(
         }
       });
 
+      // "Kalite" kategorisinde, ASD/Sapma icin numara girilmis ama henuz
+      // bir kayda baglanmamis (kayitId'si olmayan) her yeni oge icin
+      // otomatik olarak hem ASD/Sapma kayit defterine (asdSapmaKayitlari)
+      // hem de Aksiyonlar sayfasina bagli bir aksiyon acilir. Ayni oge
+      // ikinci kez kaydedildiginde (kayitId zaten varsa) tekrar islenmez.
+      let yeniAsdSapmaSayisi = 0;
+      if (category === 'kalite') {
+        ['asd', 'sapma'].forEach(alanAdi => {
+          const liste = merged[alanAdi];
+          if (!Array.isArray(liste)) return;
+
+          liste.forEach(item => {
+            if (!item || !item.numara || item.kayitId) return;
+
+            const tur = alanAdi; // 'asd' | 'sapma'
+            const tarih = `${yearMonth}-${String(day).padStart(2, '0')}`;
+
+            const kayit = {
+              id:
+                Date.now().toString() +
+                Math.random().toString(36).slice(2, 6),
+              numara: item.numara,
+              tur,
+              personelId: item.personelId || '',
+              tarih,
+              neden: item.not || '',
+              olusturmaTarihi: new Date().toISOString()
+            };
+
+            db.asdSapmaKayitlari = db.asdSapmaKayitlari || [];
+            db.asdSapmaKayitlari.push(kayit);
+
+            const yeniAksiyon = {
+              id:
+                Date.now().toString() +
+                Math.random().toString(36).slice(2, 6) +
+                'a',
+              baslik: `${tur === 'asd' ? 'ASD' : 'Sapma'} ${item.numara} takibi`,
+              aciklama: item.not || '',
+              baslangic: tarih,
+              bitis: '',
+              durum: 'Devam ediyor',
+              sahibiId: item.personelId || '',
+              kaynakTur: tur,
+              kaynakNumara: item.numara,
+              olusturmaTarihi: new Date().toISOString()
+            };
+
+            db.aksiyonlar = db.aksiyonlar || [];
+            db.aksiyonlar.push(yeniAksiyon);
+
+            kayit.aksiyonId = yeniAksiyon.id;
+            item.kayitId = kayit.id;
+
+            yeniAsdSapmaSayisi++;
+          });
+        });
+      }
+
       db[category][yearMonth][day] =
         merged;
 
@@ -1172,6 +1231,15 @@ app.post(
         `${category} verisi kaydedildi`,
         `${yearMonth} ayı, ${day}. gün`
       );
+
+      if (yeniAsdSapmaSayisi > 0) {
+        auditEkle(
+          db,
+          req,
+          'ASD/Sapma numarasından otomatik aksiyon açıldı',
+          `${yeniAsdSapmaSayisi} adet — ${yearMonth}/${day}`
+        );
+      }
 
       await writeDB(db, req.currentBolumId);
 
@@ -2299,8 +2367,26 @@ app.post(
       db.katilim[yearMonth] =
         db.katilim[yearMonth] || {};
 
-      db.katilim[yearMonth][day] =
-        req.body || {};
+      const existing =
+        db.katilim[yearMonth][day] || {};
+
+      // G-K-T-V-K gunluk takip ile ayni kural: bir kez kaydedilen katilim
+      // gunu kilitlenir, degistirmek icin admin yetkisi gerekir.
+      if (
+        existing._reviewed === true &&
+        rolSeviyesi(req.currentUser) <
+          ROL_SEVIYE.admin
+      ) {
+        return res.status(403).json({
+          error:
+            'Bu güne ait katılım zaten kaydedilmiş ve kilitlenmiş. Değiştirmek için admin yetkisi gerekir.'
+        });
+      }
+
+      db.katilim[yearMonth][day] = {
+        ...(req.body || {}),
+        _reviewed: true
+      };
 
       auditEkle(
         db,

@@ -191,7 +191,8 @@ let state = {
   editingActionId: null,
   editingPersonId: null,
   personMonthlyBreakdown: {},
-  allCategoryDataRaw: { guvenlik: {}, kalite: {}, verimlilik: {} }
+  allCategoryDataRaw: { guvenlik: {}, kalite: {}, verimlilik: {} },
+  asdSapmaKayitlari: []
 };
 
 // ================== BASLANGIC ==================
@@ -525,7 +526,7 @@ function initPeriodPickers() {
 }
 
 function reloadCurrentTab() {
-  if (state.category === 'aksiyonlar') { loadActions(); loadNotlar(); return; }
+  if (state.category === 'aksiyonlar') { loadActions().then(loadAsdSapmaKayitlari); loadNotlar(); return; }
   if (state.category === 'personel') { return; }
   if (state.category === 'organizasyon') { return; }
   if (state.category === 'ayarlar') { return; }
@@ -553,7 +554,7 @@ function initTabs() {
 
       state.category = btn.dataset.tab;
       if (state.category === 'aksiyonlar') {
-        loadActions();
+        loadActions().then(loadAsdSapmaKayitlari);
         loadNotlar();
         fillDuyuruPreviews();
         loadSktList().then(() => checkSktWarningsAndPopup());
@@ -1199,11 +1200,6 @@ async function loadAllCategoriesAndRender() {
 }
 
 async function saveDay(category, day, patch) {
-  if (!state.categoryData[category][day]) state.categoryData[category][day] = {};
-  Object.assign(state.categoryData[category][day], patch);
-  Object.keys(state.categoryData[category][day]).forEach(k => {
-    if (state.categoryData[category][day][k] === null) delete state.categoryData[category][day][k];
-  });
   const yearMonth = `${state.year}-${String(state.month).padStart(2, '0')}`;
   const res = await fetch(`/api/data/${category}/${yearMonth}/${day}`, {
     method: 'POST',
@@ -1213,10 +1209,21 @@ async function saveDay(category, day, patch) {
   if (!res.ok) {
     // fetch HTTP hata kodlarinda (400/500) exception FIRLATMAZ; bunu biz
     // firlatiyoruz ki cagiran kod (Kaydet butonu) hatayi fark edebilsin.
-    const text = await res.text().catch(() => '');
-    throw new Error(`Sunucu kaydetmeyi reddetti (HTTP ${res.status}): ${text}`);
+    // Onemli: basarisiz bir kayitta yerel state'i (state.categoryData) HIC
+    // degistirmiyoruz — aksi halde ornegin kilitli bir gune yapilan
+    // basarisiz bir kaydetme denemesi, sayfa yenilenene kadar sanki
+    // kaydedilmis gibi gorunurdu.
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Sunucu kaydetmeyi reddetti (HTTP ${res.status}).`);
   }
-  console.log(`[saveDay] ${category} gun ${day} kaydedildi:`, await res.clone().json().catch(() => null));
+  // Yerel taslagi (patch) degil, sunucunun donduryu GERCEK kaydi kullaniyoruz:
+  // sunucu ASD/Sapma ogelerine "kayitId" gibi kendi ekledigi alanlari
+  // dondurur; taslagi kullansaydik bu isaretler kaybolur ve ayni gun tekrar
+  // kaydedildiginde ayni ASD/Sapma numarasi icin ikinci kez otomatik aksiyon
+  // acilirdi.
+  const kaydedilen = await res.json().catch(() => null);
+  state.categoryData[category][day] = kaydedilen || { ...(state.categoryData[category][day] || {}), ...patch };
+  console.log(`[saveDay] ${category} gun ${day} kaydedildi:`, state.categoryData[category][day]);
 }
 
 async function clearDay(category, day) {
@@ -1358,13 +1365,36 @@ async function loadAndRenderKatilimTable() {
     fetch(`/api/katilim/${yearMonth}/${state.katilimGun}`),
     fetch(`/api/katilim/${yearMonth}`)
   ]);
-  const data = await dayRes.json(); // { personelId: 'katildi'|'katilmadi'|{durum:'izinli',izinGun,raporGun} }
+  const data = await dayRes.json(); // { personelId: 'katildi'|'katilmadi'|{durum:'izinli',izinGun,raporGun}, _reviewed?: true }
   const monthData = await monthRes.json(); // { "1": {...}, "2": {...}, ... }
   state.katilimData = data;
   state.katilimMonthData = monthData;
+  // Bu gun daha once kaydedilip kilitlendiyse (G-K-T-V-K ile ayni kural),
+  // admin disindaki herkes icin tum tablo salt-okunur olur.
+  const gunKilitli = data._reviewed === true && !isAdmin();
+  state.katilimGunKilitli = gunKilitli;
   // her personelin o gune ait izin/rapor ek bilgisini ayri tutuyoruz (popup'ta duzenlenir)
   state.katilimExtraData = {};
-  Object.keys(data).forEach(pid => { state.katilimExtraData[pid] = getKatilimExtra(data[pid]); });
+  Object.keys(data).forEach(pid => {
+    if (pid === '_reviewed') return;
+    state.katilimExtraData[pid] = getKatilimExtra(data[pid]);
+  });
+
+  const kaydetBtn = document.getElementById('katilimKaydetBtn');
+  if (kaydetBtn) kaydetBtn.style.display = gunKilitli ? 'none' : '';
+  let kilitBanner = document.getElementById('katilimKilitBanner');
+  if (gunKilitli) {
+    if (!kilitBanner) {
+      kilitBanner = document.createElement('div');
+      kilitBanner.id = 'katilimKilitBanner';
+      kilitBanner.className = 'modal-locked-banner';
+      kilitBanner.style.marginTop = '10px';
+      kilitBanner.textContent = '🔒 Bu güne ait katılım zaten kaydedilmiş ve kilitlenmiş. Değiştirmek için admin yetkisi gerekir.';
+      document.getElementById('katilimTableWrap').insertAdjacentElement('beforebegin', kilitBanner);
+    }
+  } else if (kilitBanner) {
+    kilitBanner.remove();
+  }
 
   const wrap = document.getElementById('katilimTableWrap');
   if (state.personelList.length === 0) {
@@ -1384,21 +1414,21 @@ async function loadAndRenderKatilimTable() {
             : getKatilimExtra(data[p.id]);
           const extraHint = durum === 'izinli' ? formatKatilimExtraHint(extra) : '';
           const kilitliMi = !!kilit;
-          const disabledAttr = kilitliMi ? 'disabled' : '';
+          const disabledAttr = (kilitliMi || gunKilitli) ? 'disabled' : '';
 
           let ipucuHtml = '';
           if (kilitliMi) {
             const kalanGun = kilit.bitisGunu - state.katilimGun + 1;
             ipucuHtml = `<div class="katilim-extra-hint katilim-locked-hint">🔒 ${escapeHtml(extraHint)} — ${String(kilit.anchorDay).padStart(2, '0')}. günden itibaren kilitli (${kalanGun} gün daha)
-              <button type="button" class="katilim-edit-link" data-duzenle-personel="${p.id}" data-duzenle-anchor="${kilit.anchorDay}">Düzenle</button>
+              ${gunKilitli ? '' : `<button type="button" class="katilim-edit-link" data-duzenle-personel="${p.id}" data-duzenle-anchor="${kilit.anchorDay}">Düzenle</button>`}
               ${isAdmin() ? `<button type="button" class="katilim-edit-link katilim-delete-link" data-sil-personel="${p.id}" data-sil-anchor="${kilit.anchorDay}">Sil</button>` : ''}
             </div>`;
           } else if (extraHint) {
-            ipucuHtml = `<div class="katilim-extra-hint">${escapeHtml(extraHint)}</div>`;
+            ipucuHtml = `<div class="katilim-extra-hint">${escapeHtml(extraHint)}${gunKilitli && isAdmin() ? ` <button type="button" class="katilim-edit-link katilim-delete-link" data-sil-personel="${p.id}" data-sil-anchor="${state.katilimGun}">Sil</button>` : ''}</div>`;
           }
 
           return `
-          <tr class="${kilitliMi ? 'katilim-row-locked' : ''}">
+          <tr class="${(kilitliMi || gunKilitli) ? 'katilim-row-locked' : ''}">
             <td>${personAvatarHtml(p, 26)}<span style="margin-left:8px;">${escapeHtml(p.ad)}</span></td>
             <td class="katilim-cell"><input type="radio" name="katilim_${p.id}" value="katildi" ${durum === 'katildi' ? 'checked' : ''} data-katilim-personel="${p.id}" class="katilim-radio katilim-green" ${disabledAttr}></td>
             <td class="katilim-cell"><input type="radio" name="katilim_${p.id}" value="katilmadi" ${durum === 'katilmadi' ? 'checked' : ''} data-katilim-personel="${p.id}" class="katilim-radio katilim-red" ${disabledAttr}></td>
@@ -1592,14 +1622,21 @@ async function saveKatilim() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Kaydedilemedi (HTTP ${res.status}).`);
+    }
     state.katilimData = payload;
     statusEl.textContent = '✓ Kaydedildi';
     statusEl.className = 'modal-save-status saved';
+    await loadAndRenderKatilimTable();
   } catch (err) {
     console.error(err);
-    statusEl.textContent = '⚠ Kaydedilemedi';
+    statusEl.textContent = '⚠ ' + err.message;
     statusEl.className = 'modal-save-status error';
+    // Kilitlenmis bir gune yazma denemesi basarisiz oldugunda tabloyu
+    // sunucudaki gercek durumla yeniden ciz (yaniltici gorunmesin).
+    await loadAndRenderKatilimTable();
   }
 }
 
@@ -1674,10 +1711,15 @@ function openDayModal(category, day) {
     }
   });
 
+  // Bu gun daha once kaydedilip "reviewed" isaretlendiyse, admin disindaki
+  // herkes icin salt-okunur acilir (sunucu zaten ayni kurali zorunlu kilar;
+  // burasi sadece bunu onceden, net bir sekilde arayuzde gostermek icindir).
+  const isLocked = existing.reviewed === true && !isAdmin();
+
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
 
-  const canClear = !!state.categoryData[category][day];
+  const canClear = !!state.categoryData[category][day] && !isLocked;
 
   overlay.innerHTML = `
     <div class="modal-box">
@@ -1685,13 +1727,15 @@ function openDayModal(category, day) {
         <h3>${cfg.label} — ${String(day).padStart(2, '0')} ${MONTHS_TR[state.month - 1]} ${state.year}</h3>
         <button class="modal-close" type="button">✕</button>
       </div>
-      <div class="modal-instruction">⚠️ "+ Ekle" ile personel eklemek/çıkarmak henüz KAYDETMEZ. Tüm değişiklikleri yaptıktan sonra mutlaka en alttaki <strong>"Kaydet"</strong> butonuna basmalısınız, aksi halde hiçbir şey kaydedilmez.</div>
+      ${isLocked
+        ? `<div class="modal-locked-banner">🔒 Bu gün zaten kaydedilmiş ve kilitlenmiş. Değiştirmek için admin yetkisi gerekir — aşağıdaki bilgileri sadece görüntüleyebilirsiniz.</div>`
+        : `<div class="modal-instruction">⚠️ "+ Ekle" ile personel eklemek/çıkarmak henüz KAYDETMEZ. Tüm değişiklikleri yaptıktan sonra mutlaka en alttaki <strong>"Kaydet"</strong> butonuna basmalısınız, aksi halde hiçbir şey kaydedilmez.</div>`}
       <div class="modal-body" id="modalBody"></div>
       ${cfg.compute ? `<div class="modal-computed" id="modalComputed"></div>` : ''}
-      <div class="modal-verify-box" id="modalVerifyBox"></div>
+      ${isLocked ? '' : `<div class="modal-verify-box" id="modalVerifyBox"></div>`}
       <div class="modal-footer">
         ${canClear ? `<button type="button" class="btn-secondary" id="modalClearBtn">Bu Günü Temizle</button>` : `<span></span>`}
-        <button type="button" class="btn-primary" id="modalSaveBtn">✓ Kaydet</button>
+        ${isLocked ? '' : `<button type="button" class="btn-primary" id="modalSaveBtn">✓ Kaydet</button>`}
       </div>
     </div>
   `;
@@ -1701,6 +1745,7 @@ function openDayModal(category, day) {
   const modalBody = overlay.querySelector('#modalBody');
 
   function updateVerifyBox() {
+    if (isLocked) return;
     const verifyEl = overlay.querySelector('#modalVerifyBox');
     if (!verifyEl) return;
     const parts = cfg.fields.map(f => {
@@ -1727,40 +1772,46 @@ function openDayModal(category, day) {
         const val = draft[f.key] !== undefined && draft[f.key] !== null ? draft[f.key] : 0;
         html += `<label class="modal-field">
           <span>${f.label}</span>
-          <input type="number" min="0" data-key="${f.key}" data-type="number" value="${val}">
+          <input type="number" min="0" data-key="${f.key}" data-type="number" value="${val}" ${isLocked ? 'disabled' : ''}>
         </label>`;
       } else if (f.type === 'triState') {
         const val = draft[f.key] === 'yapilmadi' ? 'yapilmadi' : 'yapildi'; // varsayilan: Yapildi
         html += `<label class="modal-field">
           <span>${f.label}</span>
-          <select data-key="${f.key}" data-type="triState">
+          <select data-key="${f.key}" data-type="triState" ${isLocked ? 'disabled' : ''}>
             <option value="yapildi" ${val === 'yapildi' ? 'selected' : ''}>Yapıldı</option>
             <option value="yapilmadi" ${val === 'yapilmadi' ? 'selected' : ''}>Yapılmadı</option>
           </select>
         </label>`;
       } else if (f.type === 'personList' || f.type === 'personHours') {
         const list = draft[f.key] || [];
+        const numaraGerekli = f.key === 'asd' || f.key === 'sapma';
         html += `<div class="modal-field-group">
           <div class="modal-field-group-label">${f.label}</div>
           <div class="person-chip-list" data-list-for="${f.key}">
             ${list.map(item => `
               <div class="person-chip">
-                <span>${escapeHtml(getPersonName(item.personelId))}${f.type === 'personHours' ? ` — ${item.saat || 0} saat` : ''}${item.not ? `<em class="chip-note"> · ${escapeHtml(item.not)}</em>` : ''}</span>
-                <button type="button" class="chip-remove" data-remove-item="${f.key}:${item.id}">✕</button>
+                <span>${escapeHtml(getPersonName(item.personelId))}${f.type === 'personHours' ? ` — ${item.saat || 0} saat` : ''}${item.numara ? ` <strong>#${escapeHtml(item.numara)}</strong>` : ''}${item.not ? `<em class="chip-note"> · ${escapeHtml(item.not)}</em>` : ''}</span>
+                ${isLocked ? '' : `<button type="button" class="chip-remove" data-remove-item="${f.key}:${item.id}">✕</button>`}
               </div>
             `).join('') || `<div class="person-chip-empty">Kayıt yok</div>`}
           </div>
+          ${isLocked ? '' : `
           <div class="person-add-row">
             <select data-add-select="${f.key}"></select>
             ${f.type === 'personHours' ? `<input type="number" min="0" step="0.5" placeholder="saat" data-add-hours="${f.key}" style="width:70px;">` : ''}
-            <input type="text" placeholder="Not (opsiyonel)" data-add-note="${f.key}" style="flex:1;min-width:110px;">
+            ${numaraGerekli ? `<input type="text" placeholder="${f.key === 'asd' ? 'ASD' : 'Sapma'} Numarası (opsiyonel)" data-add-numara="${f.key}" style="flex:1;min-width:130px;">` : ''}
+            <input type="text" placeholder="${numaraGerekli ? 'Açma Nedeni (opsiyonel)' : 'Not (opsiyonel)'}" data-add-note="${f.key}" style="flex:1;min-width:110px;">
             <button type="button" class="btn-small" data-add-btn="${f.key}">+ Ekle</button>
           </div>
           <div class="field-warning" data-warning-for="${f.key}" style="display:none;">Lütfen önce bir personel seçin.</div>
+          `}
         </div>`;
       }
     });
     modalBody.innerHTML = html;
+
+    if (isLocked) return;
 
     // secim kutularini doldur
     cfg.fields.forEach(f => {
@@ -1787,6 +1838,8 @@ function openDayModal(category, day) {
           const hoursInput = modalBody.querySelector(`[data-add-hours="${key}"]`);
           item.saat = Number(hoursInput.value || 0);
         }
+        const numaraInput = modalBody.querySelector(`[data-add-numara="${key}"]`);
+        if (numaraInput && numaraInput.value.trim()) item.numara = numaraInput.value.trim();
         const noteInput = modalBody.querySelector(`[data-add-note="${key}"]`);
         if (noteInput && noteInput.value.trim()) item.not = noteInput.value.trim();
         if (!draft[key]) draft[key] = [];
@@ -1861,31 +1914,33 @@ function openDayModal(category, day) {
     });
   }
 
-  overlay.querySelector('#modalSaveBtn').addEventListener('click', async () => {
-    const patch = { reviewed: true };
-    cfg.fields.forEach(f => {
-      if (f.type === 'personList' || f.type === 'personHours') {
-        patch[f.key] = draft[f.key] || [];
-      } else {
-        patch[f.key] = (draft[f.key] === undefined || draft[f.key] === '') ? null : draft[f.key];
+  const saveBtn = overlay.querySelector('#modalSaveBtn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const patch = { reviewed: true };
+      cfg.fields.forEach(f => {
+        if (f.type === 'personList' || f.type === 'personHours') {
+          patch[f.key] = draft[f.key] || [];
+        } else {
+          patch[f.key] = (draft[f.key] === undefined || draft[f.key] === '') ? null : draft[f.key];
+        }
+      });
+      saveBtn.textContent = 'Kaydediliyor…';
+      saveBtn.disabled = true;
+      try {
+        await saveDay(category, day, patch);
+        hasUnsavedChanges = false;
+        close();
+        renderOneCategoryGrid(category, document.getElementById('subgrid-' + category));
+        showToast(`${cfg.label} — ${String(day).padStart(2, '0')} ${MONTHS_TR[state.month - 1]} günü başarıyla kaydedildi.`);
+      } catch (err) {
+        console.error('Kayıt hatası:', err);
+        saveBtn.textContent = '✓ Kaydet';
+        saveBtn.disabled = false;
+        alert('⚠ ' + err.message);
       }
     });
-    const btn = overlay.querySelector('#modalSaveBtn');
-    btn.textContent = 'Kaydediliyor…';
-    btn.disabled = true;
-    try {
-      await saveDay(category, day, patch);
-      hasUnsavedChanges = false;
-      close();
-      renderOneCategoryGrid(category, document.getElementById('subgrid-' + category));
-      showToast(`${cfg.label} — ${String(day).padStart(2, '0')} ${MONTHS_TR[state.month - 1]} günü başarıyla kaydedildi.`);
-    } catch (err) {
-      console.error('Kayıt hatası:', err);
-      btn.textContent = 'Kaydet';
-      btn.disabled = false;
-      alert('Kaydedilemedi. Sunucu bağlantısını kontrol edin.');
-    }
-  });
+  }
 }
 
 // ================== OZET (SALT OKUNUR ANA SAYFA) ==================
@@ -2400,6 +2455,40 @@ async function deleteAction(id) {
   if (!confirm('Bu aksiyonu silmek istediğinize emin misiniz?')) return;
   await fetch(`/api/actions/${id}`, { method: 'DELETE' });
   loadActions();
+}
+
+// ================== ASD / SAPMA KAYITLARI (salt okunur liste) ==================
+// Bu kayitlar Gunluk Takip > Kalite bolumunde bir ASD/Sapma'ya numara
+// girildiginde sunucu tarafinda otomatik olusturulur (bkz. server.js,
+// /api/data/kalite/.../:day POST route'u). Burada sadece listelenir.
+
+async function loadAsdSapmaKayitlari() {
+  const res = await fetch('/api/asd-sapma');
+  state.asdSapmaKayitlari = await res.json();
+  renderAsdSapmaKayitlariTable();
+}
+
+function renderAsdSapmaKayitlariTable() {
+  const tbody = document.getElementById('asdSapmaKayitlariTableBody');
+  if (!tbody) return;
+  const kayitlar = (state.asdSapmaKayitlari || []).slice().sort((a, b) => (b.tarih || '').localeCompare(a.tarih || ''));
+  if (kayitlar.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#6b7280;">Henüz numaralı bir ASD/Sapma kaydı yok.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = kayitlar.map(k => {
+    const baglıAksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
+    return `
+    <tr>
+      <td><strong>${escapeHtml(k.numara || '')}</strong></td>
+      <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
+      <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</td>
+      <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${k.neden ? escapeHtml(k.neden) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
+      <td>${baglıAksiyon ? `<span class="badge ${badgeClass(baglıAksiyon.durum)}">${baglıAksiyon.durum}</span>` : '<span style="color:#9ca3af;">-</span>'}</td>
+    </tr>
+  `;
+  }).join('');
 }
 
 function showToast(message) {
