@@ -2274,6 +2274,45 @@ async function renderOzet() {
     </div>
   `).join('');
 
+  // ---- ASD / Sapma ozeti ----
+  const asdSapmaKayitlari = Array.isArray(state.asdSapmaKayitlari) ? state.asdSapmaKayitlari : [];
+  let asdSapmaHtml = '';
+
+  if (asdSapmaKayitlari.length === 0) {
+    asdSapmaHtml = `<p style="color:#6b7280;">Henüz numaralı ASD/Sapma kaydı yok.</p>`;
+  } else {
+    asdSapmaHtml = `
+      <div style="overflow-x:auto;">
+        <table class="actions-table">
+          <thead>
+            <tr>
+              <th>No</th>
+              <th>Tür</th>
+              <th>Personel</th>
+              <th>Tarih</th>
+              <th>Açma Nedeni</th>
+              <th>Aksiyon</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${asdSapmaKayitlari.map(k => `
+              <tr>
+                <td>${escapeHtml(String(k.numara || '-'))}</td>
+                <td>
+                  <span class="badge ${k.tur === 'sapma' ? 'badge-iptal' : 'badge-warn'}">
+                    ${k.tur === 'sapma' ? 'Sapma' : 'ASD'}
+                  </span>
+                </td>
+                <td>${escapeHtml(getPersonName(k.personelId) || k.personel || '-')}</td>
+                <td>${escapeHtml(k.tarih || k.date || '-')}</td>
+                <td>${escapeHtml(k.neden || k.aciklama || k.not || '-')}</td>
+                <td>${escapeHtml(k.aksiyon || k.aksiyonNo || '-')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
   // ---- ust bloklar (Notlar, Personel) ve kart bolumleri (Kaza, SKT, Aksiyonlar):
   //      kullanicinin Ayarlar sayfasindan belirledigi siraya gore diziliyor ----
   const ustBloklar = {
@@ -2303,10 +2342,30 @@ async function renderOzet() {
       <details class="ozet-details" ${acikAksiyonlar.length > 0 ? 'open' : ''}>
         <summary>Açık Aksiyonlar <span class="ozet-count-badge">${acikAksiyonlar.length}</span></summary>
         <div class="ozet-details-body">${actionsHtml}</div>
+      </details>`,
+    asdSapma: `
+      <details class="ozet-details" ${asdSapmaKayitlari.length > 0 ? 'open' : ''}>
+        <summary>ASD / Sapma <span class="ozet-count-badge ${asdSapmaKayitlari.length > 0 ? 'badge-warn' : ''}">${asdSapmaKayitlari.length}</span></summary>
+        <div class="ozet-details-body">${asdSapmaHtml}</div>
       </details>`
   };
   const ustSiralama = (state.ayarlar.ozetUstSiralama && state.ayarlar.ozetUstSiralama.length === 2) ? state.ayarlar.ozetUstSiralama : ['notlar', 'personel'];
-  const kartSiralama = (state.ayarlar.ozetKartSiralama && state.ayarlar.ozetKartSiralama.length === 3) ? state.ayarlar.ozetKartSiralama : ['kaza', 'skt', 'aksiyonlar'];
+  let kartSiralama = Array.isArray(state.ayarlar.ozetKartSiralama)
+    ? state.ayarlar.ozetKartSiralama.slice()
+    : ['kaza', 'skt', 'aksiyonlar', 'asdSapma'];
+
+  // Eski 3'lü sıralama kayıtları varsa ASD/Sapma'yı otomatik olarak sona ekle.
+  if (!kartSiralama.includes('asdSapma')) {
+    kartSiralama.push('asdSapma');
+  }
+
+  // Geçersiz/tekrarlı kayıtları temizle ve 4 kartla sınırla.
+  kartSiralama = [...new Set(kartSiralama)]
+    .filter(k => ['kaza', 'skt', 'aksiyonlar', 'asdSapma'].includes(k));
+
+  if (kartSiralama.length !== 4) {
+    kartSiralama = ['kaza', 'skt', 'aksiyonlar', 'asdSapma'];
+  }
   const ustBloklarHtml = ustSiralama.map(k => ustBloklar[k] || '').join('');
   const kartBolumleriHtml = kartSiralama.map(k => kartBolumleri[k] || '').join('');
 
