@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-21-1';
+const APP_VERSION = 'v2026-09-24-1';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -241,6 +241,7 @@ function defaultBolumVerisi() {
 
       ozetUstSiralama: [
         'notlar',
+        'asdSapma',
         'personel'
       ],
 
@@ -307,7 +308,7 @@ function normalizeBolumVerisi(parsed) {
   merged.ayarlar.ozetUstSiralama =
     (
       (parsed.ayarlar || {}).ozetUstSiralama &&
-      (parsed.ayarlar || {}).ozetUstSiralama.length === 2
+      (parsed.ayarlar || {}).ozetUstSiralama.length === 3
     )
       ? parsed.ayarlar.ozetUstSiralama
       : def.ayarlar.ozetUstSiralama;

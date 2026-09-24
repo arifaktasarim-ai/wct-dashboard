@@ -192,7 +192,16 @@ let state = {
   editingPersonId: null,
   personMonthlyBreakdown: {},
   allCategoryDataRaw: { guvenlik: {}, kalite: {}, verimlilik: {} },
-  asdSapmaKayitlari: []
+  asdSapmaKayitlari: [],
+  // Ozet sayfasindaki ASD/Sapma Kayitlari bolumunun filtre durumu.
+  // tur/durum: ilgili secenek isaretliyse listede kalir (hepsi kapaliysa hicbir sey gosterilmez degil, hepsi gosterilir).
+  asdSapmaFiltre: {
+    tur: { asd: true, sapma: true },
+    durum: { acik: true, kapali: true },
+    baslangic: '',
+    bitis: '',
+    numara: ''
+  }
 };
 
 // ================== BASLANGIC ==================
@@ -526,7 +535,7 @@ function initPeriodPickers() {
 }
 
 function reloadCurrentTab() {
-  if (state.category === 'aksiyonlar') { loadActions().then(loadAsdSapmaKayitlari); loadNotlar(); return; }
+  if (state.category === 'aksiyonlar') { loadActions(); loadNotlar(); return; }
   if (state.category === 'personel') { return; }
   if (state.category === 'organizasyon') { return; }
   if (state.category === 'ayarlar') { return; }
@@ -554,7 +563,7 @@ function initTabs() {
 
       state.category = btn.dataset.tab;
       if (state.category === 'aksiyonlar') {
-        loadActions().then(loadAsdSapmaKayitlari);
+        loadActions();
         loadNotlar();
         fillDuyuruPreviews();
         loadSktList().then(() => checkSktWarningsAndPopup());
@@ -1952,7 +1961,7 @@ async function renderOzet() {
   const yearMonth = `${state.year}-${String(state.month).padStart(2, '0')}`;
   const categories = ['guvenlik', 'kalite', 'teslimat', 'verimlilik', 'kalibrasyon'];
 
-  const [dataResults, actionsRes, personelRes, notlarRes, duyurularRes, sktRes, allGuvenlik, allKalite, allVerimlilik, allKatilim] = await Promise.all([
+  const [dataResults, actionsRes, personelRes, notlarRes, duyurularRes, sktRes, allGuvenlik, allKalite, allVerimlilik, allKatilim, asdSapmaRes] = await Promise.all([
     Promise.all(categories.map(c => fetch(`/api/data/${c}/${yearMonth}`).then(r => r.json()))),
     fetch('/api/actions').then(r => r.json()),
     fetch('/api/personel').then(r => r.json()),
@@ -1962,12 +1971,15 @@ async function renderOzet() {
     fetch('/api/all/guvenlik').then(r => r.json()),
     fetch('/api/all/kalite').then(r => r.json()),
     fetch('/api/all/verimlilik').then(r => r.json()),
-    fetch('/api/all-katilim').then(r => r.json())
+    fetch('/api/all-katilim').then(r => r.json()),
+    fetch('/api/asd-sapma').then(r => r.json())
   ]);
 
   state.personelList = personelRes;
   state.duyurular = duyurularRes;
   state.sktList = sktRes;
+  state.actions = actionsRes;
+  state.asdSapmaKayitlari = asdSapmaRes;
   const monthData = {};
   categories.forEach((c, i) => { monthData[c] = dataResults[i]; });
 
@@ -2282,6 +2294,11 @@ async function renderOzet() {
         <summary>Notlar / Görevler <span class="ozet-count-badge">${notlarRes ? notlarRes.length : 0}</span></summary>
         <div class="ozet-details-body">${notlarHtml}</div>
       </details>`,
+    asdSapma: `
+      <details class="ozet-details ozet-details-full" id="asdSapmaKayitlariDetails">
+        <summary>ASD / Sapma Kayıtları <span class="ozet-count-badge">${(state.asdSapmaKayitlari || []).length}</span></summary>
+        <div class="ozet-details-body">${asdSapmaBlokHtml()}</div>
+      </details>`,
     personel: `
       <details class="ozet-details ozet-details-full" open>
         <summary>Personel Bazlı Özet <span class="ozet-count-badge">${personRows.length}</span></summary>
@@ -2305,7 +2322,7 @@ async function renderOzet() {
         <div class="ozet-details-body">${actionsHtml}</div>
       </details>`
   };
-  const ustSiralama = (state.ayarlar.ozetUstSiralama && state.ayarlar.ozetUstSiralama.length === 2) ? state.ayarlar.ozetUstSiralama : ['notlar', 'personel'];
+  const ustSiralama = (state.ayarlar.ozetUstSiralama && state.ayarlar.ozetUstSiralama.length === 3) ? state.ayarlar.ozetUstSiralama : ['notlar', 'asdSapma', 'personel'];
   const kartSiralama = (state.ayarlar.ozetKartSiralama && state.ayarlar.ozetKartSiralama.length === 3) ? state.ayarlar.ozetKartSiralama : ['kaza', 'skt', 'aksiyonlar'];
   const ustBloklarHtml = ustSiralama.map(k => ustBloklar[k] || '').join('');
   const kartBolumleriHtml = kartSiralama.map(k => kartBolumleri[k] || '').join('');
@@ -2355,6 +2372,8 @@ async function renderOzet() {
       openPersonDetailModal(btn.dataset.personDetail);
     });
   });
+
+  initAsdSapmaBlok();
 }
 
 // ================== AKSIYONLAR ==================
@@ -2457,26 +2476,40 @@ async function deleteAction(id) {
   loadActions();
 }
 
-// ================== ASD / SAPMA KAYITLARI (salt okunur liste) ==================
+// ================== ASD / SAPMA KAYITLARI (Ozet sayfasi: filtre + disa aktarma) ==================
 // Bu kayitlar Gunluk Takip > Kalite bolumunde bir ASD/Sapma'ya numara
 // girildiginde sunucu tarafinda otomatik olusturulur (bkz. server.js,
-// /api/data/kalite/.../:day POST route'u). Burada sadece listelenir.
+// /api/data/kalite/.../:day POST route'u). Veri renderOzet() icinde
+// /api/asd-sapma'dan cekilir; burada sadece Ozet sayfasindaki filtrelenebilir/
+// disa aktarilabilir blogun HTML'i ve etkilesimleri var.
 
-async function loadAsdSapmaKayitlari() {
-  const res = await fetch('/api/asd-sapma');
-  state.asdSapmaKayitlari = await res.json();
-  renderAsdSapmaKayitlariTable();
+function asdSapmaDurum(kayit) {
+  const baglı = (state.actions || []).find(a => a.id === kayit.aksiyonId);
+  if (!baglı) return 'acik';
+  return baglı.durum === 'Devam ediyor' ? 'acik' : 'kapali';
 }
 
-function renderAsdSapmaKayitlariTable() {
-  const tbody = document.getElementById('asdSapmaKayitlariTableBody');
-  if (!tbody) return;
-  const kayitlar = (state.asdSapmaKayitlari || []).slice().sort((a, b) => (b.tarih || '').localeCompare(a.tarih || ''));
+function getFilteredAsdSapmaKayitlari() {
+  const f = state.asdSapmaFiltre;
+  return (state.asdSapmaKayitlari || []).filter(k => {
+    const tur = k.tur === 'sapma' ? 'sapma' : 'asd';
+    if (!f.tur[tur]) return false;
+    if (!f.durum[asdSapmaDurum(k)]) return false;
+    if (f.baslangic && (!k.tarih || k.tarih < f.baslangic)) return false;
+    if (f.bitis && (!k.tarih || k.tarih > f.bitis)) return false;
+    if (f.numara && f.numara.trim()) {
+      const q = f.numara.trim().toLowerCase();
+      if (!(k.numara || '').toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }).slice().sort((a, b) => (b.tarih || '').localeCompare(a.tarih || ''));
+}
+
+function asdSapmaRowsHtml(kayitlar) {
   if (kayitlar.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#6b7280;">Henüz numaralı bir ASD/Sapma kaydı yok.</td></tr>`;
-    return;
+    return `<tr><td colspan="6" style="text-align:center;color:#6b7280;">Filtreye uyan bir ASD/Sapma kaydı yok.</td></tr>`;
   }
-  tbody.innerHTML = kayitlar.map(k => {
+  return kayitlar.map(k => {
     const baglıAksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
     return `
     <tr>
@@ -2489,6 +2522,168 @@ function renderAsdSapmaKayitlariTable() {
     </tr>
   `;
   }).join('');
+}
+
+function asdSapmaBlokHtml() {
+  const f = state.asdSapmaFiltre;
+  return `
+    <div class="category-hedef" style="margin-top:0;">
+      Günlük Takip → Kalite bölümünde bir ASD veya Sapma eklenirken bir numara
+      girilirse, buraya otomatik olarak bir kayıt düşer ve Aksiyonlar listesine
+      bağlı bir aksiyon açılır. Bu liste sadece görüntüleme amaçlıdır.
+    </div>
+    <div class="asd-sapma-filtre">
+      <div class="asd-sapma-filtre-row">
+        <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreAsd" ${f.tur.asd ? 'checked' : ''}> ASD</label>
+        <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreSapma" ${f.tur.sapma ? 'checked' : ''}> Sapma</label>
+        <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreAcik" ${f.durum.acik ? 'checked' : ''}> Açık</label>
+        <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreKapali" ${f.durum.kapali ? 'checked' : ''}> Kapalı</label>
+      </div>
+      <div class="form-row">
+        <label>Tarih Aralığı (Başlangıç)
+          <input type="date" id="asdSapmaFiltreBaslangic" value="${f.baslangic || ''}">
+        </label>
+        <label>Tarih Aralığı (Bitiş)
+          <input type="date" id="asdSapmaFiltreBitis" value="${f.bitis || ''}">
+        </label>
+        <label>Numara Ara
+          <input type="text" id="asdSapmaFiltreNumara" placeholder="örn. 2026-014" value="${escapeHtml(f.numara || '')}">
+        </label>
+      </div>
+      <div class="asd-sapma-export-row">
+        <button type="button" class="btn-small" id="asdSapmaExcelBtn">⬇ Excel İndir</button>
+        <button type="button" class="btn-small" id="asdSapmaPdfBtn">⬇ PDF İndir</button>
+      </div>
+    </div>
+    <table class="actions-table">
+      <thead>
+        <tr>
+          <th>Numara</th>
+          <th>Tür</th>
+          <th>Açan</th>
+          <th>Tarih</th>
+          <th>Açma Nedeni</th>
+          <th>Bağlı Aksiyon Durumu</th>
+        </tr>
+      </thead>
+      <tbody id="asdSapmaKayitlariTableBody">${asdSapmaRowsHtml(getFilteredAsdSapmaKayitlari())}</tbody>
+    </table>
+  `;
+}
+
+function renderAsdSapmaTableBodyOnly() {
+  const tbody = document.getElementById('asdSapmaKayitlariTableBody');
+  if (!tbody) return;
+  const filtreli = getFilteredAsdSapmaKayitlari();
+  tbody.innerHTML = asdSapmaRowsHtml(filtreli);
+  const badge = document.querySelector('#asdSapmaKayitlariDetails summary .ozet-count-badge');
+  if (badge) badge.textContent = filtreli.length;
+}
+
+function initAsdSapmaBlok() {
+  const f = state.asdSapmaFiltre;
+  const asdChk = document.getElementById('asdSapmaFiltreAsd');
+  if (!asdChk) return; // blok DOM'da yoksa (baska sayfadaysak) hicbir sey yapma
+  const sapmaChk = document.getElementById('asdSapmaFiltreSapma');
+  const acikChk = document.getElementById('asdSapmaFiltreAcik');
+  const kapaliChk = document.getElementById('asdSapmaFiltreKapali');
+  const baslangicInput = document.getElementById('asdSapmaFiltreBaslangic');
+  const bitisInput = document.getElementById('asdSapmaFiltreBitis');
+  const numaraInput = document.getElementById('asdSapmaFiltreNumara');
+  const excelBtn = document.getElementById('asdSapmaExcelBtn');
+  const pdfBtn = document.getElementById('asdSapmaPdfBtn');
+
+  asdChk.addEventListener('change', () => { f.tur.asd = asdChk.checked; renderAsdSapmaTableBodyOnly(); });
+  sapmaChk.addEventListener('change', () => { f.tur.sapma = sapmaChk.checked; renderAsdSapmaTableBodyOnly(); });
+  acikChk.addEventListener('change', () => { f.durum.acik = acikChk.checked; renderAsdSapmaTableBodyOnly(); });
+  kapaliChk.addEventListener('change', () => { f.durum.kapali = kapaliChk.checked; renderAsdSapmaTableBodyOnly(); });
+  baslangicInput.addEventListener('change', () => { f.baslangic = baslangicInput.value; renderAsdSapmaTableBodyOnly(); });
+  bitisInput.addEventListener('change', () => { f.bitis = bitisInput.value; renderAsdSapmaTableBodyOnly(); });
+  numaraInput.addEventListener('input', () => { f.numara = numaraInput.value; renderAsdSapmaTableBodyOnly(); });
+
+  excelBtn.addEventListener('click', exportAsdSapmaExcel);
+  pdfBtn.addEventListener('click', exportAsdSapmaPdf);
+}
+
+function todayStampForFile() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function exportAsdSapmaExcel() {
+  const kayitlar = getFilteredAsdSapmaKayitlari();
+  const rows = kayitlar.map(k => {
+    const baglıAksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
+    return `<tr>
+      <td>${escapeHtml(k.numara || '')}</td>
+      <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
+      <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : ''}</td>
+      <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${escapeHtml(k.neden || '')}</td>
+      <td>${baglıAksiyon ? escapeHtml(baglıAksiyon.durum) : ''}</td>
+    </tr>`;
+  }).join('');
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head><meta charset="UTF-8"></head>
+    <body>
+      <table border="1">
+        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Açma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6">Kayıt yok</td></tr>'}</tbody>
+      </table>
+    </body>
+    </html>`;
+  const blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `asd-sapma-kayitlari-${todayStampForFile()}.xls`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportAsdSapmaPdf() {
+  const kayitlar = getFilteredAsdSapmaKayitlari();
+  const rows = kayitlar.map(k => {
+    const baglıAksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
+    return `<tr>
+      <td>${escapeHtml(k.numara || '')}</td>
+      <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
+      <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</td>
+      <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${escapeHtml(k.neden || '-')}</td>
+      <td>${baglıAksiyon ? escapeHtml(baglıAksiyon.durum) : '-'}</td>
+    </tr>`;
+  }).join('');
+  const win = window.open('', '_blank');
+  if (!win) { alert('PDF için yeni pencere açılamadı. Tarayıcınızın açılır pencere engelleyicisini kontrol edin.'); return; }
+  win.document.write(`<html>
+    <head>
+      <meta charset="UTF-8">
+      <title>ASD / Sapma Kayıtları</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; color: #1b2a4a; }
+        h1 { font-size: 18px; margin-bottom: 4px; }
+        p { font-size: 12px; color: #6b7280; margin-top: 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+        th, td { border: 1px solid #d1d5db; padding: 6px 8px; font-size: 12px; text-align: left; }
+        th { background: #f3f4f6; }
+      </style>
+    </head>
+    <body>
+      <h1>ASD / Sapma Kayıtları</h1>
+      <p>Oluşturulma: ${new Date().toLocaleString('tr-TR')} — ${kayitlar.length} kayıt</p>
+      <table>
+        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Açma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" style="text-align:center;">Kayıt yok</td></tr>'}</tbody>
+      </table>
+    </body>
+    </html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { win.print(); }, 300);
 }
 
 function showToast(message) {
@@ -2803,6 +2998,7 @@ const SIRALAMA_ETIKETLERI = {
   verimlilik: 'Verimlilik (V)',
   kalibrasyon: 'Kalibrasyonlar',
   notlar: 'Notlar / Görevler',
+  asdSapma: 'ASD / Sapma Kayıtları',
   personel: 'Personel Bazlı Özet',
   kaza: 'Kaza / Ramak Kala Olay Detayları',
   skt: 'SKT / Süre Takibi',
