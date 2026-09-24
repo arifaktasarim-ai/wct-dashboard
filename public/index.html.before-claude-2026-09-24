@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>WCT Günlük Yönetim Panosu</title>
+<link rel="stylesheet" href="/css/style.css">
+<meta name="theme-color" content="#1b2a4a">
+</head>
+<body>
+
+<!-- GIRIS EKRANI: gecerli oturum yoksa bu gosterilir, dashboard gizli kalir -->
+<div id="loginOverlay" class="login-overlay" style="display:none;">
+  <div class="login-box">
+    <div class="login-logo">🔐</div>
+    <h1>WCT Günlük Yönetim Panosu</h1>
+    <p class="login-sub">Devam etmek için giriş yapın</p>
+    <form id="loginForm">
+      <label>Bölüm
+        <select id="loginBolumId" required>
+          <option value="">Bölüm seçiniz…</option>
+        </select>
+      </label>
+      <label>Kullanıcı Adı
+        <input type="text" id="loginKullaniciAdi" autocomplete="username" required>
+      </label>
+      <label>Şifre
+        <input type="password" id="loginSifre" autocomplete="current-password" required>
+      </label>
+      <label class="login-checkbox-label">
+        <input type="checkbox" id="loginBeniHatirla" checked>
+        <span>Beni hatırla</span>
+      </label>
+      <div id="loginHata" class="login-hata" style="display:none;"></div>
+      <button type="submit" class="btn-primary" id="loginBtn" style="width:100%;margin-top:10px;">Giriş Yap</button>
+      <button type="button" id="sifremiUnuttumBtn" class="login-link-btn">Şifremi unuttum</button>
+    </form>
+
+    <form id="sifreSorusuForm" style="display:none;">
+      <p class="login-sub" style="margin-top:0;">Şifrenizi sıfırlamak için bölümünüzü ve kullanıcı adınızı girin.</p>
+      <label>Bölüm
+        <select id="sifreSorusuBolumId" required>
+          <option value="">Bölüm seçiniz…</option>
+        </select>
+      </label>
+      <label>Kullanıcı Adı
+        <input type="text" id="sifreSorusuKullaniciAdi" autocomplete="username" required>
+      </label>
+      <div id="sifreSorusuHata" class="login-hata" style="display:none;"></div>
+      <button type="submit" class="btn-primary" id="sifreSorusuBtn" style="width:100%;margin-top:10px;">Devam Et</button>
+      <button type="button" id="sifreSorusuGeriBtn" class="login-link-btn">Girişe dön</button>
+    </form>
+
+    <form id="sifreSifirlaForm" style="display:none;">
+      <p class="login-sub" style="margin-top:0;" id="sifreSifirlaSoruMetni"></p>
+      <label>Cevabınız
+        <input type="text" id="sifreSifirlaCevap" required>
+      </label>
+      <label>Yeni Şifre
+        <input type="password" id="sifreSifirlaYeniSifre" autocomplete="new-password" required minlength="4">
+      </label>
+      <div id="sifreSifirlaHata" class="login-hata" style="display:none;"></div>
+      <div id="sifreSifirlaBasari" class="login-basari" style="display:none;"></div>
+      <button type="submit" class="btn-primary" id="sifreSifirlaBtn" style="width:100%;margin-top:10px;">Şifreyi Sıfırla</button>
+      <button type="button" id="sifreSifirlaGeriBtn" class="login-link-btn">Girişe dön</button>
+    </form>
+  </div>
+</div>
+
+<div id="appRoot" style="display:none;">
+
+<header class="topbar">
+  <div class="topbar-brand">
+    <img id="topbarLogo" class="topbar-logo" style="display:none;" alt="Logo">
+    <div>
+      <h1 id="topbarTitle">WCT Günlük Yönetim Panosu</h1>
+      <div id="topbarSubtitle" class="topbar-subtitle" style="display:none;"></div>
+    </div>
+  </div>
+  <div class="period-picker">
+    <select id="monthSelect"></select>
+    <select id="yearSelect"></select>
+    <span class="current-user-badge" id="currentUserName"></span>
+    <button type="button" class="logout-btn" id="logoutBtn">Çıkış</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab-btn active" data-tab="ozet">Özet</button>
+  <button class="tab-btn" data-tab="gunluk">Günlük Takip (G-K-T-V-K)</button>
+  <button class="tab-btn" data-tab="aksiyonlar">Aksiyonlar</button>
+  <button class="tab-btn" data-tab="personel">Personel</button>
+  <button class="tab-btn" data-tab="organizasyon">Organizasyon</button>
+  <button class="tab-btn" data-tab="ayarlar">Ayarlar</button>
+  <button class="tab-btn" data-tab="kullanicilar" style="display:none;">Kullanıcı Yönetimi</button>
+  <button class="tab-btn" data-tab="bolumler" style="display:none;">Bölüm Yönetimi</button>
+</nav>
+
+<main id="mainContent">
+
+  <!-- OZET (salt okunur ana sayfa) -->
+  <section id="grid-ozet" class="tab-panel active" data-category="ozet"></section>
+
+  <!-- Gunluk Takip: Guvenlik, Kalite, Teslimat, Verimlilik, Kalibrasyon + Katilim Listesi tek sayfada -->
+  <section id="grid-gunluk" class="tab-panel grid-panel" data-category="gunluk">
+    <details class="ozet-details katilim-details" id="katilimDetails">
+      <summary>WCT Katılım Listesi</summary>
+      <div id="katilimSection" class="ozet-details-body katilim-card"></div>
+    </details>
+    <div class="gunluk-card-grid">
+      <div id="subgrid-guvenlik" class="grid-panel"></div>
+      <div id="subgrid-kalite" class="grid-panel"></div>
+      <div id="subgrid-teslimat" class="grid-panel"></div>
+      <div id="subgrid-verimlilik" class="grid-panel"></div>
+      <div id="subgrid-kalibrasyon" class="grid-panel"></div>
+    </div>
+  </section>
+
+  <!-- Aksiyonlar paneli -->
+  <section id="grid-aksiyonlar" class="tab-panel actions-panel">
+
+    <details class="ozet-details aksiyon-group" open>
+      <summary>Aksiyon Takibi</summary>
+      <div class="ozet-details-body">
+        <form id="actionForm" class="action-form">
+          <div class="form-row">
+            <label>Aksiyon Başlığı
+              <input type="text" id="actBaslik" required>
+            </label>
+            <label>Aksiyon Sahibi
+              <select id="actSahibi"></select>
+            </label>
+            <label>Durum
+              <select id="actDurum">
+                <option value="Devam ediyor">Devam ediyor</option>
+                <option value="Tamamlandı">Tamamlandı</option>
+                <option value="İptal">İptal</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Başlangıç Tarihi
+              <input type="date" id="actBaslangic" required>
+            </label>
+            <label>Bitiş Tarihi
+              <input type="date" id="actBitis">
+            </label>
+          </div>
+          <div class="form-row">
+            <label class="full-width">Alınan Aksiyon / Açıklama
+              <textarea id="actAciklama" rows="2"></textarea>
+            </label>
+          </div>
+          <button type="submit" class="btn-primary">Aksiyon Ekle</button>
+        </form>
+
+        <table class="actions-table">
+          <thead>
+            <tr>
+              <th>Aksiyon</th>
+              <th>Açıklama</th>
+              <th>Sahibi</th>
+              <th>Başlangıç</th>
+              <th>Bitiş</th>
+              <th>Durum</th>
+              <th>İşlem</th>
+            </tr>
+          </thead>
+          <tbody id="actionsTableBody"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="ozet-details aksiyon-group" id="asdSapmaKayitlariDetails">
+      <summary>ASD / Sapma Kayıtları</summary>
+      <div class="ozet-details-body">
+        <div class="category-hedef" style="margin-top:0;">
+          Günlük Takip → Kalite bölümünde bir ASD veya Sapma eklenirken bir numara
+          girilirse, buraya otomatik olarak bir kayıt düşer ve Aksiyonlar listesine
+          bağlı bir aksiyon açılır. Bu liste sadece görüntüleme amaçlıdır.
+        </div>
+        <table class="actions-table">
+          <thead>
+            <tr>
+              <th>Numara</th>
+              <th>Tür</th>
+              <th>Açan</th>
+              <th>Tarih</th>
+              <th>Açma Nedeni</th>
+              <th>Bağlı Aksiyon Durumu</th>
+            </tr>
+          </thead>
+          <tbody id="asdSapmaKayitlariTableBody"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="ozet-details aksiyon-group">
+      <summary>Notlar / Görevler (Kişiye Görev veya Lab Geneli Duyuru)</summary>
+      <div class="ozet-details-body">
+        <div class="category-hedef" style="margin-top:0;">
+          Sorumlu bir kişiye görev tanımlayabilir (bitiş tarihi ve durum takibiyle)
+          veya laboratuvar geneline bir duyuru ekleyebilirsiniz. Bu bölüm Özet
+          sayfasında da (Personel Bazlı Özet tablosunun hemen üstünde) görünür.
+        </div>
+        <form id="notForm" class="action-form">
+          <div class="form-row">
+            <label>Tip
+              <select id="notTip">
+                <option value="duyuru">Lab Geneli Duyuru</option>
+                <option value="gorev">Kişiye Görev</option>
+              </select>
+            </label>
+            <label id="notPersonelWrap" style="display:none;">Sorumlu Personel
+              <select id="notPersonel"></select>
+            </label>
+            <label id="notDurumWrap" style="display:none;">Durum
+              <select id="notDurum">
+                <option value="Devam ediyor">Devam ediyor</option>
+                <option value="Tamamlandı">Tamamlandı</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Başlık
+              <input type="text" id="notBaslik" placeholder="örn. Reaktif siparişi ver / Cihaz bakımı">
+            </label>
+            <label id="notBitisWrap" style="display:none;">Bitiş / Son Tarih
+              <input type="date" id="notBitis">
+            </label>
+          </div>
+          <div class="form-row">
+            <label class="full-width">Açıklama / Not
+              <textarea id="notMetin" rows="3" placeholder="Detaylı açıklama, kararlar, hatırlatmalar..."></textarea>
+            </label>
+          </div>
+          <button type="submit" class="btn-primary">Ekle</button>
+        </form>
+
+        <div id="notlarListe" class="notes-list"></div>
+      </div>
+    </details>
+
+    <details class="ozet-details aksiyon-group">
+      <summary>Duyurular (Görsel Yüklemeler)</summary>
+      <div class="ozet-details-body">
+        <div class="category-hedef" style="margin-top:0;">Buradan yüklenen görseller Özet sayfasında herkese gösterilir.</div>
+        <div class="duyuru-upload-grid">
+          <div class="duyuru-upload-box">
+            <h3>One Point Lesson (OPL)</h3>
+            <input type="file" id="duyuruOplFile" accept="image/*">
+            <div class="duyuru-preview-wrap">
+              <img id="duyuruOplPreview" style="display:none;">
+              <button type="button" class="icon-btn danger" id="duyuruOplClear" style="display:none;">Kaldır</button>
+            </div>
+          </div>
+          <div class="duyuru-upload-box">
+            <h3>See Card / Öneri Karekodu</h3>
+            <input type="file" id="duyuruKarekodFile" accept="image/*">
+            <div class="duyuru-preview-wrap">
+              <img id="duyuruKarekodPreview" style="display:none;">
+              <button type="button" class="icon-btn danger" id="duyuruKarekodClear" style="display:none;">Kaldır</button>
+            </div>
+          </div>
+          <div class="duyuru-upload-box">
+            <h3>Kalibrasyon Tablosu</h3>
+            <input type="file" id="duyuruKalibrasyonFile" accept="image/*">
+            <div class="duyuru-preview-wrap">
+              <img id="duyuruKalibrasyonPreview" style="display:none;">
+              <button type="button" class="icon-btn danger" id="duyuruKalibrasyonClear" style="display:none;">Kaldır</button>
+            </div>
+          </div>
+          <div class="duyuru-upload-box">
+            <h3>Diğer 1</h3>
+            <input type="file" id="duyuruDiger1File" accept="image/*">
+            <div class="duyuru-preview-wrap">
+              <img id="duyuruDiger1Preview" style="display:none;">
+              <button type="button" class="icon-btn danger" id="duyuruDiger1Clear" style="display:none;">Kaldır</button>
+            </div>
+          </div>
+          <div class="duyuru-upload-box">
+            <h3>Diğer 2</h3>
+            <input type="file" id="duyuruDiger2File" accept="image/*">
+            <div class="duyuru-preview-wrap">
+              <img id="duyuruDiger2Preview" style="display:none;">
+              <button type="button" class="icon-btn danger" id="duyuruDiger2Clear" style="display:none;">Kaldır</button>
+            </div>
+          </div>
+          <div class="duyuru-upload-box">
+            <h3>Diğer 3</h3>
+            <input type="file" id="duyuruDiger3File" accept="image/*">
+            <div class="duyuru-preview-wrap">
+              <img id="duyuruDiger3Preview" style="display:none;">
+              <button type="button" class="icon-btn danger" id="duyuruDiger3Clear" style="display:none;">Kaldır</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="ozet-details aksiyon-group">
+      <summary>SKT / Süre Takibi</summary>
+      <div class="ozet-details-body">
+        <div class="category-hedef" style="margin-top:0;">
+          Periyodik değiştirilen çözelti/malzemelerin son kullanma tarihini takip edin
+          (örn. "Metanollü Sular", hazırlanma tarihi + 21 gün). Süre dolmasına 3 gün
+          kala sarı, süre dolduğunda kırmızı uyarı verir. Birden fazla kayıt ekleyebilirsiniz.
+        </div>
+        <form id="sktForm" class="action-form">
+          <div class="form-row">
+            <label>Malzeme / Çözelti Adı
+              <input type="text" id="sktAd" placeholder="örn. Metanollü Sular" required>
+            </label>
+            <label>Hazırlanma Tarihi
+              <input type="date" id="sktHazirlanma" required>
+            </label>
+            <label>Geçerlilik Süresi (gün)
+              <input type="number" id="sktSure" min="1" value="21" required>
+            </label>
+          </div>
+          <button type="submit" class="btn-primary">Takibe Ekle</button>
+        </form>
+        <div id="sktTableWrap"></div>
+      </div>
+    </details>
+
+  </section>
+
+  <!-- Personel paneli -->
+  <section id="grid-personel" class="tab-panel actions-panel">
+    <h2>Personel Kayıtları</h2>
+    <form id="personelForm" class="action-form">
+      <div class="form-row">
+        <label>Ad Soyad
+          <input type="text" id="pAd" required>
+        </label>
+        <label>Departman / Görev Yeri
+          <input type="text" id="pDepartman" placeholder="örn. Hammadde Laboratuvarı" readonly>
+        </label>
+        <label>Unvan
+          <select id="pUnvan"></select>
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Fotoğraf (opsiyonel)
+          <input type="file" id="pFoto" accept="image/*">
+        </label>
+        <div class="settings-preview">
+          <span>Önizleme</span>
+          <img id="pFotoPreview" style="display:none;width:64px;height:64px;border-radius:50%;object-fit:cover;">
+          <button type="button" class="btn-secondary" id="pFotoSilBtn" style="display:none;margin-top:6px;">Fotoğrafı Sil</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="modal-field-group" style="flex:1;">
+          <div class="modal-field-group-label">Sorumluluk(lar) — opsiyonel (örn. Arşiv Sorumlusu, Reaktif Sorumlusu)</div>
+          <div class="person-chip-list" id="pSorumlulukChipList">
+            <div class="person-chip-empty">Henüz sorumluluk eklenmedi</div>
+          </div>
+          <div class="person-add-row">
+            <input type="text" id="pSorumlulukInput" placeholder="örn. Arşiv Sorumlusu" style="flex:1 1 180px;">
+            <button type="button" class="btn-small" id="pSorumlulukAddBtn">+ Ekle</button>
+          </div>
+        </div>
+      </div>
+      <button type="submit" class="btn-primary">Personel Ekle</button>
+      <button type="button" class="btn-secondary" id="pCancelEditBtn" style="display:none;margin-left:8px;">Vazgeç</button>
+    </form>
+
+    <table class="actions-table">
+      <thead>
+        <tr>
+          <th>Fotoğraf</th>
+          <th>Ad Soyad</th>
+          <th>Departman / Görev Yeri</th>
+          <th>Unvan</th>
+          <th>Sorumluluk(lar)</th>
+          <th>İşlem</th>
+        </tr>
+      </thead>
+      <tbody id="personelTableBody"></tbody>
+    </table>
+  </section>
+
+  <!-- Organizasyon semasi paneli (JS ile doldurulur) -->
+  <section id="grid-organizasyon" class="tab-panel"></section>
+
+  <!-- Ayarlar paneli -->
+  <section id="grid-ayarlar" class="tab-panel actions-panel">
+    <h2>Ayarlar</h2>
+    <div class="category-hedef">Ayarlar başlıklar halinde gruplandırılmıştır; ilgili başlığa tıklayarak açıp kapatabilirsiniz. Değişiklikleri yaptıktan sonra en alttaki "Ayarları Kaydet" butonuna basmayı unutmayın.</div>
+    <form id="ayarlarForm" class="action-form">
+
+      <details class="ozet-details settings-group" open>
+        <summary>Kurumsal Kimlik</summary>
+        <div class="ozet-details-body">
+          <div class="form-row">
+            <label>Firma Adı
+              <input type="text" id="setFirmaAdi" placeholder="örn. Gensenta İlaç">
+            </label>
+            <label>Bölüm Adı
+              <input type="text" id="setBolumAdi" placeholder="örn. Hammadde Kalite Kontrol Laboratuvarı">
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Firma Logosu
+              <input type="file" id="setLogoFile" accept="image/*">
+            </label>
+            <label>Arka Plan Görseli (opsiyonel)
+              <input type="file" id="setBgImageFile" accept="image/*">
+            </label>
+          </div>
+          <div class="form-row" id="settingsPreviewRow">
+            <div class="settings-preview">
+              <span>Logo Önizleme</span>
+              <img id="logoPreview" style="display:none;">
+              <button type="button" class="icon-btn danger" id="clearLogoBtn" style="display:none;">Logoyu Kaldır</button>
+            </div>
+            <div class="settings-preview">
+              <span>Arka Plan Önizleme</span>
+              <img id="bgPreview" style="display:none;">
+              <button type="button" class="icon-btn danger" id="clearBgBtn" style="display:none;">Arka Planı Kaldır</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="ozet-details settings-group">
+        <summary>Görünüm ve Sayfa Düzeni</summary>
+        <div class="ozet-details-body">
+          <div class="form-row">
+            <label>Ana Renk (Aksan Rengi)
+              <input type="color" id="setAccentColor" value="#1b2a4a">
+            </label>
+            <label>Arka Plan Rengi
+              <input type="color" id="setBgColor" value="#f2f4f7">
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Sayfa Genişliği
+              <select id="setPageWidth">
+                <option value="dar">Dar (okunabilirlik odaklı)</option>
+                <option value="normal">Normal</option>
+                <option value="genis">Geniş (tüm ekran)</option>
+              </select>
+            </label>
+            <label>Köşe Yuvarlaklığı
+              <select id="setRadius">
+                <option value="keskin">Keskin köşeler</option>
+                <option value="normal">Yumuşak (varsayılan)</option>
+                <option value="oval">Oval</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label class="modal-field-check" style="flex-direction:row;">
+              <input type="checkbox" id="setShadows">
+              <span>Kartlarda gölge efekti göster</span>
+            </label>
+            <label class="modal-field-check" style="flex-direction:row;">
+              <input type="checkbox" id="setCompact">
+              <span>Kompakt görünüm (daha az boşluk, ekrana daha fazla sığdır)</span>
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <details class="ozet-details settings-group">
+        <summary>Sayfa Bazlı Renkler (Güvenlik / Kalite / Teslimat / Verimlilik / Kalibrasyon)</summary>
+        <div class="ozet-details-body">
+          <div class="category-hedef" style="margin-top:0;">Her sayfanın kendi rengini bağımsız olarak özelleştirebilirsiniz (kart başlığındaki renkli nokta ve harf grid arka planı bu renge göre değişir).</div>
+          <div class="form-row settings-color-row">
+            <label>Güvenlik <input type="color" id="setColorGuvenlik" value="#2563eb"></label>
+            <label>Kalite <input type="color" id="setColorKalite" value="#7c3aed"></label>
+            <label>Teslimat <input type="color" id="setColorTeslimat" value="#0d9488"></label>
+            <label>Verimlilik <input type="color" id="setColorVerimlilik" value="#ea580c"></label>
+            <label>Kalibrasyon <input type="color" id="setColorKalibrasyon" value="#475569"></label>
+          </div>
+        </div>
+      </details>
+    </form>
+
+    <details class="ozet-details settings-group" id="siralamaGroup">
+      <summary>Sayfa Sıralaması (Günlük Takip / Özet)</summary>
+      <div class="ozet-details-body">
+        <div class="category-hedef" style="margin-top:0;">
+          Aşağıdaki ▲ / ▼ butonlarıyla blokların sırasını değiştirebilirsiniz.
+          Değişiklikler anında kaydedilir (ayrıca "Ayarları Kaydet" butonuna
+          basmanıza gerek yoktur).
+        </div>
+
+        <h3 class="settings-subheading">Günlük Takip (G-K-T-V-K) Sırası</h3>
+        <div id="siralamaGunlukList" class="siralama-list"></div>
+
+        <h3 class="settings-subheading" style="margin-top:20px;">Özet Sayfası — Üst Bloklar (Tam Genişlik)</h3>
+        <div id="siralamaOzetUstList" class="siralama-list"></div>
+
+        <h3 class="settings-subheading" style="margin-top:20px;">Özet Sayfası — Kart Bölümleri</h3>
+        <div id="siralamaOzetKartList" class="siralama-list"></div>
+      </div>
+    </details>
+
+    <details class="ozet-details settings-group" id="bildirimGroup" open>
+      <summary>🔔 Bildirimler (Bu Bilgisayar)</summary>
+      <div class="ozet-details-body">
+        <div class="category-hedef" style="margin-top:0;">
+          Size özel atanan görevlerin (Aksiyonlar → Notlar/Görevler → "Kişiye
+          Görev") son tarihi yaklaştığında veya geçtiğinde, bu bilgisayarda
+          tarayıcı bildirimi gösterilsin. Bu özellik sertifika/telefon
+          gerektirmez; WCT Panosu'nu bir tarayıcı sekmesinde açık tuttuğunuz
+          sürece (arka planda da olabilir) çalışır.
+        </div>
+
+        <div class="form-row">
+          <label>Bildirimleri kimin adına almak istiyorsunuz?
+            <select id="bildirimPersonelSelect"></select>
+          </label>
+        </div>
+
+        <div class="form-row" style="gap:10px;">
+          <button type="button" class="btn-primary" id="bildirimEtkinlestirBtn">🔔 Bu Bilgisayarda Bildirimleri Etkinleştir</button>
+          <button type="button" class="btn-secondary" id="bildirimTestBtn" style="display:none;">Test Bildirimi Gönder</button>
+          <button type="button" class="icon-btn danger" id="bildirimKapatBtn" style="display:none;">Kapat</button>
+        </div>
+
+        <div id="bildirimDurumBox" class="modal-save-status" style="margin-top:10px;"></div>
+
+        <div class="category-hedef" style="margin-top:14px;">
+          <strong>Not:</strong> Bildirimlerin çalışması için WCT Panosu
+          sekmesinin bilgisayarda açık kalması gerekir (simge durumuna
+          küçültebilir veya başka sekmelerde çalışabilirsiniz, sekmeyi
+          tamamen kapatmamanız yeterlidir). Kontrol her 10 dakikada bir ve
+          sayfa her açıldığında otomatik olarak yapılır.
+        </div>
+      </div>
+    </details>
+
+    <button type="button" class="btn-primary" id="ayarlarKaydetBtn" style="width:100%;margin-top:8px;">Ayarları Kaydet</button>
+  </section>
+
+  <!-- Kullanici Yonetimi paneli (sadece admin) -->
+  <section id="grid-kullanicilar" class="tab-panel actions-panel">
+    <h2>Kullanıcı Yönetimi</h2>
+    <div class="category-hedef">
+      Buradan personel kayıtlarına giriş bilgisi (kullanıcı adı / şifre), yetki
+      rolü ve şifremi unuttum akışında kullanılacak güvenlik sorusu/cevabı
+      atayabilirsiniz. <strong>Admin:</strong> tüm işlemleri yapabilir (silme
+      dahil). <strong>Kontrolcü:</strong> günlük verileri, aksiyonları, notları vb.
+      ekleyip düzenleyebilir ama hiçbir şeyi silemez. <strong>Kullanıcı:</strong>
+      panoyu sadece görüntüleyebilir. Kullanıcı adı boş bırakılan personel giriş
+      yapamaz (sadece kayıt olarak listelerde görünür). Şifre ve güvenlik cevabı
+      alanları sadece değiştirmek istediğinizde doldurulmalıdır.
+    </div>
+    <table class="actions-table">
+      <thead>
+        <tr>
+          <th>Personel</th>
+          <th>Kullanıcı Adı</th>
+          <th>Yeni Şifre</th>
+          <th>Rol</th>
+          <th>Güvenlik Sorusu</th>
+          <th>Güvenlik Cevabı</th>
+          <th>İşlem</th>
+        </tr>
+      </thead>
+      <tbody id="kullaniciYonetimiTableBody"></tbody>
+    </table>
+  </section>
+
+  <!-- Bolum Yonetimi paneli (sadece admin) -->
+  <section id="grid-bolumler" class="tab-panel actions-panel">
+    <h2>Bölüm Yönetimi</h2>
+    <div class="category-hedef">
+      Her bölümün kendi personeli, günlük takip verisi ve ayarları vardır —
+      bölümler birbirinden tamamen bağımsızdır. Yeni bir bölüm oluşturduğunuzda
+      o bölüm için bir yönetici hesabı da belirlemeniz gerekir; giriş yapmak
+      isteyenler giriş ekranında önce bölümü seçip ardından o bölüme ait
+      kullanıcı adı/şifre ile giriş yapar.
+    </div>
+
+    <form id="bolumOlusturForm" class="action-form" style="margin-bottom:18px;">
+      <label>Bölüm Adı
+        <input type="text" id="yeniBolumAdi" required placeholder="Örn. İkinci Şube Laboratuvarı">
+      </label>
+      <label>Yönetici Kullanıcı Adı
+        <input type="text" id="yeniBolumYoneticiKullaniciAdi" required autocomplete="off">
+      </label>
+      <label>Yönetici Şifresi
+        <input type="password" id="yeniBolumYoneticiSifre" required autocomplete="new-password">
+      </label>
+      <div id="bolumOlusturHata" class="login-hata" style="display:none;"></div>
+      <button type="submit" class="btn-primary" id="bolumOlusturBtn" style="width:100%;margin-top:8px;">Bölüm Oluştur</button>
+    </form>
+
+    <div class="modal-field-group-label">Mevcut Bölümler</div>
+    <div id="bolumYonetimiListe"></div>
+  </section>
+
+</main>
+
+<footer id="versionFooter" class="version-footer">Sürüm bilgisi yükleniyor…</footer>
+
+<script src="/js/app.js"></script>
+</div>
+
+</body>
+</html>
