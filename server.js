@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-24-2';
+const APP_VERSION = 'v2026-09-24-3';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -706,58 +706,87 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ============================================================
-// SIFREMI UNUTTUM (guvenlik sorusu ile)
+// SIFRE YENILEME (admin tarafindan uretilen tek kullanimlik kod ile)
 // ============================================================
+// Eskiden "guvenlik sorusu/cevabi" ile calisiyordu; ancak bu alanlar admin
+// tarafindan dogrudan atandigi icin (kullanicinin kendi belirledigi ozel bir
+// bilgi degil) hicbir guvenlik/gizlilik degeri katmiyor, ustelik admin'in
+// herkesin "guvenlik cevabini" gormesine yol aciyordu. Yeni akista admin,
+// Kullanici Yonetimi sayfasindan ilgili kisi icin tek kullanimlik, sureli bir
+// kod uretir ve bunu kullaniciya sozlu/elden iletir; kullanici bu kodu burada
+// girerek KENDI yeni sifresini belirler. Admin, kullanicinin sectigi yeni
+// sifreyi hicbir zaman gormez.
 
-app.post('/api/auth/sifre-sorusu', (req, res) => {
-  try {
-    const {
-      bolumId,
-      kullaniciAdi
-    } = req.body || {};
+const SIFIRLAMA_KODU_GECERLILIK_DK = 30;
 
-    const db = readGlobalDB();
+app.post(
+  '/api/personel/:id/sifirlama-kodu',
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const db = readDB(req.currentBolumId);
 
-    const bolumVerisi =
-      bolumId && (db.bolumVerileri || {})[bolumId];
+      const kisi =
+        (db.personel || []).find(
+          p => p.id === req.params.id
+        );
 
-    const user =
-      bolumVerisi &&
-      (bolumVerisi.personel || []).find(
-        p =>
-          p.kullaniciAdi &&
-          p.kullaniciAdi
-            .toLowerCase() ===
-          String(kullaniciAdi || '')
-            .toLowerCase()
-            .trim()
+      if (!kisi) {
+        return res.status(404).json({
+          error: 'Personel bulunamadı.'
+        });
+      }
+
+      if (!kisi.kullaniciAdi) {
+        return res.status(400).json({
+          error:
+            'Bu kişinin giriş için bir kullanıcı adı yok; önce kullanıcı adı belirleyin.'
+        });
+      }
+
+      // 6 haneli, okunmasi/soylenmesi kolay sayisal kod.
+      const kod = String(
+        crypto.randomInt(100000, 1000000)
       );
 
-    if (!user || !user.guvenlikSorusu) {
-      return res.status(404).json({
-        error:
-          'Bu kullanıcı için güvenlik sorusu tanımlı değil. Lütfen bölüm yöneticinizle iletişime geçin.'
+      const { salt, hash } = hashPassword(kod);
+
+      kisi.sifirlamaKoduHash = hash;
+      kisi.sifirlamaKoduSalt = salt;
+      kisi.sifirlamaKoduSonKullanma = new Date(
+        Date.now() + SIFIRLAMA_KODU_GECERLILIK_DK * 60 * 1000
+      ).toISOString();
+
+      auditEkle(
+        db,
+        req,
+        'Şifre sıfırlama kodu oluşturuldu',
+        kisi.ad
+      );
+
+      await writeDB(db, req.currentBolumId);
+
+      res.json({
+        ok: true,
+        kod,
+        gecerlilikDakika: SIFIRLAMA_KODU_GECERLILIK_DK
+      });
+    } catch (err) {
+      console.error('SIFIRLAMA KODU OLUSTURMA HATASI:', err);
+
+      res.status(500).json({
+        error: 'Sıfırlama kodu oluşturulamadı.'
       });
     }
-
-    res.json({
-      soru: user.guvenlikSorusu
-    });
-  } catch (err) {
-    console.error('SIFRE SORUSU HATASI:', err);
-
-    res.status(500).json({
-      error: 'Sunucu hatası oluştu.'
-    });
   }
-});
+);
 
-app.post('/api/auth/sifre-sifirla', async (req, res) => {
+app.post('/api/auth/sifre-yenile', async (req, res) => {
   try {
     const {
       bolumId,
       kullaniciAdi,
-      cevap,
+      kod,
       yeniSifre
     } = req.body || {};
 
@@ -784,17 +813,21 @@ app.post('/api/auth/sifre-sifirla', async (req, res) => {
             .trim()
       );
 
-    if (
-      !user ||
-      !user.guvenlikSorusu ||
-      !verifyPassword(
-        String(cevap || '').trim().toLowerCase(),
-        user.guvenlikCevabiSalt,
-        user.guvenlikCevabiHash
-      )
-    ) {
+    const kodGecerli =
+      user &&
+      user.sifirlamaKoduHash &&
+      user.sifirlamaKoduSonKullanma &&
+      new Date(user.sifirlamaKoduSonKullanma).getTime() > Date.now() &&
+      verifyPassword(
+        String(kod || '').trim(),
+        user.sifirlamaKoduSalt,
+        user.sifirlamaKoduHash
+      );
+
+    if (!kodGecerli) {
       return res.status(400).json({
-        error: 'Güvenlik cevabı hatalı.'
+        error:
+          'Sıfırlama kodu geçersiz, süresi dolmuş veya bu kullanıcı için tanımlı değil. Bölüm yöneticinizden yeni bir kod isteyin.'
       });
     }
 
@@ -805,6 +838,11 @@ app.post('/api/auth/sifre-sifirla', async (req, res) => {
 
     user.sifreSalt = salt;
     user.sifreHash = hash;
+
+    // Kod tek kullanimliktir; basarili sifirlamadan sonra gecersiz kilinir.
+    delete user.sifirlamaKoduHash;
+    delete user.sifirlamaKoduSalt;
+    delete user.sifirlamaKoduSonKullanma;
 
     // Sifre sifirlandiginda, o kullaniciya ait tum eski oturumlar
     // guvenlik icin kapatilir.
@@ -818,7 +856,7 @@ app.post('/api/auth/sifre-sifirla', async (req, res) => {
       ok: true
     });
   } catch (err) {
-    console.error('SIFRE SIFIRLAMA HATASI:', err);
+    console.error('SIFRE YENILEME HATASI:', err);
 
     res.status(500).json({
       error: 'Sunucu hatası oluştu.'
@@ -1332,15 +1370,28 @@ app.delete(
 app.get('/api/personel', (req, res) => {
   const db = readDB(req.currentBolumId);
 
+  const simdi = Date.now();
+
   const safeList =
     (db.personel || []).map(
       ({
         sifreHash,
         sifreSalt,
+        guvenlikSorusu,
         guvenlikCevabiHash,
         guvenlikCevabiSalt,
+        sifirlamaKoduHash,
+        sifirlamaKoduSalt,
+        sifirlamaKoduSonKullanma,
         ...rest
-      }) => rest
+      }) => ({
+        ...rest,
+        sifirlamaKoduAktif: Boolean(
+          sifirlamaKoduHash &&
+          sifirlamaKoduSonKullanma &&
+          new Date(sifirlamaKoduSonKullanma).getTime() > simdi
+        )
+      })
     );
 
   res.json(safeList);
@@ -1435,6 +1486,9 @@ app.post(
       const {
         sifreHash,
         sifreSalt,
+        sifirlamaKoduHash,
+        sifirlamaKoduSalt,
+        sifirlamaKoduSonKullanma,
         ...safePerson
       } = newPerson;
 
@@ -1522,28 +1576,6 @@ app.put(
 
       delete body.sifre;
 
-      // Guvenlik sorusu/cevabi: "sifremi unuttum" akisinda kullanilir.
-      // Cevap, girildigi gibi degil normalize edilip (kucuk harf + trim)
-      // sifre gibi hash'lenerek saklanir; boylece "Istanbul" ile
-      // "istanbul " ayni kabul edilir.
-      if (typeof body.guvenlikSorusu === 'string') {
-        body.guvenlikSorusu = body.guvenlikSorusu.trim();
-      }
-
-      if (body.guvenlikCevabi) {
-        const {
-          salt,
-          hash
-        } = hashPassword(
-          String(body.guvenlikCevabi).trim().toLowerCase()
-        );
-
-        body.guvenlikCevabiSalt = salt;
-        body.guvenlikCevabiHash = hash;
-      }
-
-      delete body.guvenlikCevabi;
-
       if (body.rol) {
         body.rol = normalizeRol(body.rol);
 
@@ -1590,6 +1622,9 @@ app.put(
       const {
         sifreHash,
         sifreSalt,
+        sifirlamaKoduHash,
+        sifirlamaKoduSalt,
+        sifirlamaKoduSonKullanma,
         ...safePerson
       } = db.personel[idx];
 

@@ -34,36 +34,31 @@
       </label>
       <div id="loginHata" class="login-hata" style="display:none;"></div>
       <button type="submit" class="btn-primary" id="loginBtn" style="width:100%;margin-top:10px;">Giriş Yap</button>
-      <button type="button" id="sifremiUnuttumBtn" class="login-link-btn">Şifremi unuttum</button>
+      <button type="button" id="sifreYenileTetikleBtn" class="login-link-btn">Şifremi yenile</button>
     </form>
 
-    <form id="sifreSorusuForm" style="display:none;">
-      <p class="login-sub" style="margin-top:0;">Şifrenizi sıfırlamak için bölümünüzü ve kullanıcı adınızı girin.</p>
+    <form id="sifreYenileForm" style="display:none;">
+      <p class="login-sub" style="margin-top:0;">
+        Yöneticinizden aldığınız tek kullanımlık sıfırlama kodunu girip yeni şifrenizi belirleyin.
+      </p>
       <label>Bölüm
-        <select id="sifreSorusuBolumId" required>
+        <select id="sifreYenileBolumId" required>
           <option value="">Bölüm seçiniz…</option>
         </select>
       </label>
       <label>Kullanıcı Adı
-        <input type="text" id="sifreSorusuKullaniciAdi" autocomplete="username" required>
+        <input type="text" id="sifreYenileKullaniciAdi" autocomplete="username" required>
       </label>
-      <div id="sifreSorusuHata" class="login-hata" style="display:none;"></div>
-      <button type="submit" class="btn-primary" id="sifreSorusuBtn" style="width:100%;margin-top:10px;">Devam Et</button>
-      <button type="button" id="sifreSorusuGeriBtn" class="login-link-btn">Girişe dön</button>
-    </form>
-
-    <form id="sifreSifirlaForm" style="display:none;">
-      <p class="login-sub" style="margin-top:0;" id="sifreSifirlaSoruMetni"></p>
-      <label>Cevabınız
-        <input type="text" id="sifreSifirlaCevap" required>
+      <label>Sıfırlama Kodu
+        <input type="text" id="sifreYenileKod" autocomplete="one-time-code" required>
       </label>
       <label>Yeni Şifre
-        <input type="password" id="sifreSifirlaYeniSifre" autocomplete="new-password" required minlength="4">
+        <input type="password" id="sifreYenileYeniSifre" autocomplete="new-password" required minlength="4">
       </label>
-      <div id="sifreSifirlaHata" class="login-hata" style="display:none;"></div>
-      <div id="sifreSifirlaBasari" class="login-basari" style="display:none;"></div>
-      <button type="submit" class="btn-primary" id="sifreSifirlaBtn" style="width:100%;margin-top:10px;">Şifreyi Sıfırla</button>
-      <button type="button" id="sifreSifirlaGeriBtn" class="login-link-btn">Girişe dön</button>
+      <div id="sifreYenileHata" class="login-hata" style="display:none;"></div>
+      <div id="sifreYenileBasari" class="login-basari" style="display:none;"></div>
+      <button type="submit" class="btn-primary" id="sifreYenileBtn" style="width:100%;margin-top:10px;">Şifreyi Yenile</button>
+      <button type="button" id="sifreYenileGeriBtn" class="login-link-btn">Girişe dön</button>
     </form>
   </div>
 </div>
@@ -520,14 +515,19 @@
   <section id="grid-kullanicilar" class="tab-panel actions-panel">
     <h2>Kullanıcı Yönetimi</h2>
     <div class="category-hedef">
-      Buradan personel kayıtlarına giriş bilgisi (kullanıcı adı / şifre), yetki
-      rolü ve şifremi unuttum akışında kullanılacak güvenlik sorusu/cevabı
-      atayabilirsiniz. <strong>Admin:</strong> tüm işlemleri yapabilir (silme
-      dahil). <strong>Kontrolcü:</strong> günlük verileri, aksiyonları, notları vb.
-      ekleyip düzenleyebilir ama hiçbir şeyi silemez. <strong>Kullanıcı:</strong>
-      panoyu sadece görüntüleyebilir. Kullanıcı adı boş bırakılan personel giriş
-      yapamaz (sadece kayıt olarak listelerde görünür). Şifre ve güvenlik cevabı
-      alanları sadece değiştirmek istediğinizde doldurulmalıdır.
+      Buradan personel kayıtlarına giriş bilgisi (kullanıcı adı / şifre) ve
+      yetki rolü atayabilirsiniz. <strong>Admin:</strong> tüm işlemleri
+      yapabilir (silme dahil). <strong>Kontrolcü:</strong> günlük verileri,
+      aksiyonları, notları vb. ekleyip düzenleyebilir ama hiçbir şeyi
+      silemez. <strong>Kullanıcı:</strong> panoyu sadece görüntüleyebilir.
+      Kullanıcı adı boş bırakılan personel giriş yapamaz (sadece kayıt
+      olarak listelerde görünür). Şifre alanı sadece değiştirmek
+      istediğinizde doldurulmalıdır. Bir kullanıcı şifresini unutursa,
+      "Sıfırlama Kodu Oluştur" ile tek kullanımlık bir kod üretip kendisine
+      iletin; kullanıcı bu kodu giriş ekranındaki "Şifremi yenile"
+      bağlantısından kendi yeni şifresini belirlemek için kullanır. Bu
+      sayede kimsenin şifresini veya kişisel bilgilerini görmenize gerek
+      kalmaz.
     </div>
     <table class="actions-table">
       <thead>
@@ -536,8 +536,7 @@
           <th>Kullanıcı Adı</th>
           <th>Yeni Şifre</th>
           <th>Rol</th>
-          <th>Güvenlik Sorusu</th>
-          <th>Güvenlik Cevabı</th>
+          <th>Şifre Sıfırlama</th>
           <th>İşlem</th>
         </tr>
       </thead>
