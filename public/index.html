@@ -39,7 +39,7 @@
 
     <form id="sifreYenileForm" style="display:none;">
       <p class="login-sub" style="margin-top:0;">
-        Yöneticinizden aldığınız tek kullanımlık sıfırlama kodunu girip yeni şifrenizi belirleyin.
+        Mevcut şifrenizi girerek kimliğinizi doğrulayın ve yeni şifrenizi belirleyin.
       </p>
       <label>Bölüm
         <select id="sifreYenileBolumId" required>
@@ -49,8 +49,8 @@
       <label>Kullanıcı Adı
         <input type="text" id="sifreYenileKullaniciAdi" autocomplete="username" required>
       </label>
-      <label>Sıfırlama Kodu
-        <input type="text" id="sifreYenileKod" autocomplete="one-time-code" required>
+      <label>Mevcut Şifre
+        <input type="password" id="sifreYenileMevcutSifre" autocomplete="current-password" required>
       </label>
       <label>Yeni Şifre
         <input type="password" id="sifreYenileYeniSifre" autocomplete="new-password" required minlength="4">
@@ -515,28 +515,27 @@
   <section id="grid-kullanicilar" class="tab-panel actions-panel">
     <h2>Kullanıcı Yönetimi</h2>
     <div class="category-hedef">
-      Buradan personel kayıtlarına giriş bilgisi (kullanıcı adı / şifre) ve
-      yetki rolü atayabilirsiniz. <strong>Admin:</strong> tüm işlemleri
-      yapabilir (silme dahil). <strong>Kontrolcü:</strong> günlük verileri,
-      aksiyonları, notları vb. ekleyip düzenleyebilir ama hiçbir şeyi
-      silemez. <strong>Kullanıcı:</strong> panoyu sadece görüntüleyebilir.
-      Kullanıcı adı boş bırakılan personel giriş yapamaz (sadece kayıt
-      olarak listelerde görünür). Şifre alanı sadece değiştirmek
-      istediğinizde doldurulmalıdır. Bir kullanıcı şifresini unutursa,
-      "Sıfırlama Kodu Oluştur" ile tek kullanımlık bir kod üretip kendisine
-      iletin; kullanıcı bu kodu giriş ekranındaki "Şifremi yenile"
-      bağlantısından kendi yeni şifresini belirlemek için kullanır. Bu
-      sayede kimsenin şifresini veya kişisel bilgilerini görmenize gerek
-      kalmaz.
+      Buradan personel kayıtlarına giriş yetkisi (kullanıcı adı) ve rol
+      atayabilirsiniz. <strong>Admin, hiçbir kullanıcının şifresini
+      belirleyemez, göremez veya değiştiremez</strong> — bu tamamen
+      kullanıcının kendi kontrolündedir. <strong>Admin:</strong> tüm
+      işlemleri yapabilir (silme dahil). <strong>Kontrolcü:</strong> günlük
+      verileri, aksiyonları, notları vb. ekleyip düzenleyebilir ama hiçbir
+      şeyi silemez. <strong>Kullanıcı:</strong> panoyu sadece
+      görüntüleyebilir. Kullanıcı adı boş bırakılan personel giriş yapamaz
+      (sadece kayıt olarak listelerde görünür). Bir personele ilk kez
+      kullanıcı adı atadığınızda, ilk şifresi otomatik olarak kullanıcı
+      adıyla aynı olur; bunu kendisine iletin ve giriş ekranındaki
+      "Şifremi yenile" bağlantısından kendi şifresini belirlemesini
+      isteyin. Daha sonra şifresini unutursa da yine aynı yoldan, mevcut
+      şifresini bilerek kendisi yeniler — siz bu adıma dahil olmazsınız.
     </div>
     <table class="actions-table">
       <thead>
         <tr>
           <th>Personel</th>
           <th>Kullanıcı Adı</th>
-          <th>Yeni Şifre</th>
           <th>Rol</th>
-          <th>Şifre Sıfırlama</th>
           <th>İşlem</th>
         </tr>
       </thead>

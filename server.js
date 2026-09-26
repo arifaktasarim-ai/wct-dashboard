@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-24-3';
+const APP_VERSION = 'v2026-09-24-4';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -706,87 +706,24 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ============================================================
-// SIFRE YENILEME (admin tarafindan uretilen tek kullanimlik kod ile)
+// SIFRE YENILEME (tamamen kullanicinin kendi kontrolunde)
 // ============================================================
-// Eskiden "guvenlik sorusu/cevabi" ile calisiyordu; ancak bu alanlar admin
-// tarafindan dogrudan atandigi icin (kullanicinin kendi belirledigi ozel bir
-// bilgi degil) hicbir guvenlik/gizlilik degeri katmiyor, ustelik admin'in
-// herkesin "guvenlik cevabini" gormesine yol aciyordu. Yeni akista admin,
-// Kullanici Yonetimi sayfasindan ilgili kisi icin tek kullanimlik, sureli bir
-// kod uretir ve bunu kullaniciya sozlu/elden iletir; kullanici bu kodu burada
-// girerek KENDI yeni sifresini belirler. Admin, kullanicinin sectigi yeni
-// sifreyi hicbir zaman gormez.
-
-const SIFIRLAMA_KODU_GECERLILIK_DK = 30;
-
-app.post(
-  '/api/personel/:id/sifirlama-kodu',
-  requireRole('admin'),
-  async (req, res) => {
-    try {
-      const db = readDB(req.currentBolumId);
-
-      const kisi =
-        (db.personel || []).find(
-          p => p.id === req.params.id
-        );
-
-      if (!kisi) {
-        return res.status(404).json({
-          error: 'Personel bulunamadı.'
-        });
-      }
-
-      if (!kisi.kullaniciAdi) {
-        return res.status(400).json({
-          error:
-            'Bu kişinin giriş için bir kullanıcı adı yok; önce kullanıcı adı belirleyin.'
-        });
-      }
-
-      // 6 haneli, okunmasi/soylenmesi kolay sayisal kod.
-      const kod = String(
-        crypto.randomInt(100000, 1000000)
-      );
-
-      const { salt, hash } = hashPassword(kod);
-
-      kisi.sifirlamaKoduHash = hash;
-      kisi.sifirlamaKoduSalt = salt;
-      kisi.sifirlamaKoduSonKullanma = new Date(
-        Date.now() + SIFIRLAMA_KODU_GECERLILIK_DK * 60 * 1000
-      ).toISOString();
-
-      auditEkle(
-        db,
-        req,
-        'Şifre sıfırlama kodu oluşturuldu',
-        kisi.ad
-      );
-
-      await writeDB(db, req.currentBolumId);
-
-      res.json({
-        ok: true,
-        kod,
-        gecerlilikDakika: SIFIRLAMA_KODU_GECERLILIK_DK
-      });
-    } catch (err) {
-      console.error('SIFIRLAMA KODU OLUSTURMA HATASI:', err);
-
-      res.status(500).json({
-        error: 'Sıfırlama kodu oluşturulamadı.'
-      });
-    }
-  }
-);
+// Onceki surumlerde sifre sifirlama admin uzerinden (once dogrudan sifre
+// alani, sonra admin'in urettigi tek kullanimlik kod ile) yapiliyordu. Bu,
+// admin'in her zaman kullanicilarin sifresini degistirebilmesi/gorebilmesi
+// anlamina geldigi icin bir guvenlik/gizlilik sorunuydu. Bu surumde admin
+// artik sifreye hic dokunamiyor: sadece kullanici olusturabiliyor (ilk
+// sifre, kullanici adiyla ayni atanir) ve rol atayabiliyor. Sifreyi
+// degistirmek/yenilemek tamamen kullanicinin kendisine aittir: giris
+// ekranindaki "Şifre Yenile" ile MEVCUT sifresini girerek kimligini
+// kanitlar ve yeni sifresini kendisi belirler.
 
 app.post('/api/auth/sifre-yenile', async (req, res) => {
   try {
     const {
       bolumId,
       kullaniciAdi,
-      kod,
+      mevcutSifre,
       yeniSifre
     } = req.body || {};
 
@@ -813,21 +750,16 @@ app.post('/api/auth/sifre-yenile', async (req, res) => {
             .trim()
       );
 
-    const kodGecerli =
-      user &&
-      user.sifirlamaKoduHash &&
-      user.sifirlamaKoduSonKullanma &&
-      new Date(user.sifirlamaKoduSonKullanma).getTime() > Date.now() &&
-      verifyPassword(
-        String(kod || '').trim(),
-        user.sifirlamaKoduSalt,
-        user.sifirlamaKoduHash
-      );
-
-    if (!kodGecerli) {
-      return res.status(400).json({
-        error:
-          'Sıfırlama kodu geçersiz, süresi dolmuş veya bu kullanıcı için tanımlı değil. Bölüm yöneticinizden yeni bir kod isteyin.'
+    if (
+      !user ||
+      !verifyPassword(
+        String(mevcutSifre || ''),
+        user.sifreSalt,
+        user.sifreHash
+      )
+    ) {
+      return res.status(401).json({
+        error: 'Kullanıcı adı veya mevcut şifre hatalı.'
       });
     }
 
@@ -839,13 +771,9 @@ app.post('/api/auth/sifre-yenile', async (req, res) => {
     user.sifreSalt = salt;
     user.sifreHash = hash;
 
-    // Kod tek kullanimliktir; basarili sifirlamadan sonra gecersiz kilinir.
-    delete user.sifirlamaKoduHash;
-    delete user.sifirlamaKoduSalt;
-    delete user.sifirlamaKoduSonKullanma;
-
-    // Sifre sifirlandiginda, o kullaniciya ait tum eski oturumlar
-    // guvenlik icin kapatilir.
+    // Sifre yenilendiginde, o kullaniciya ait tum eski oturumlar
+    // guvenlik icin kapatilir (bu oturum dahil; yeni sifreyle tekrar
+    // giris yapmasi gerekir).
     db.sessions = (db.sessions || []).filter(
       s => s.personelId !== user.id
     );
@@ -860,6 +788,7 @@ app.post('/api/auth/sifre-yenile', async (req, res) => {
 
     res.status(500).json({
       error: 'Sunucu hatası oluştu.'
+
     });
   }
 });
@@ -1370,8 +1299,6 @@ app.delete(
 app.get('/api/personel', (req, res) => {
   const db = readDB(req.currentBolumId);
 
-  const simdi = Date.now();
-
   const safeList =
     (db.personel || []).map(
       ({
@@ -1384,14 +1311,7 @@ app.get('/api/personel', (req, res) => {
         sifirlamaKoduSalt,
         sifirlamaKoduSonKullanma,
         ...rest
-      }) => ({
-        ...rest,
-        sifirlamaKoduAktif: Boolean(
-          sifirlamaKoduHash &&
-          sifirlamaKoduSonKullanma &&
-          new Date(sifirlamaKoduSonKullanma).getTime() > simdi
-        )
-      })
+      }) => rest
     );
 
   res.json(safeList);
@@ -1447,18 +1367,15 @@ app.post(
           });
         }
 
-        if (!req.body.sifre) {
-          return res.status(400).json({
-            error:
-              'Kullanıcı adı belirttiyseniz bir şifre de girmelisiniz.'
-          });
-        }
-
+        // Admin sifreyi hicbir zaman dogrudan belirlemez. Ilk sifre,
+        // kullanici adiyla ayni olacak sekilde otomatik atanir; kullanici
+        // ilk girisinden sonra giris ekranindaki "Şifre Yenile" ile kendi
+        // sifresini belirlemelidir.
         const {
           salt,
           hash
         } = hashPassword(
-          req.body.sifre
+          newPerson.kullaniciAdi
         );
 
         newPerson.sifreSalt = salt;
@@ -1539,6 +1456,17 @@ app.put(
       body.departman =
         mevcutBolum ? mevcutBolum.ad : '';
 
+      // Admin sifreyi hicbir sekilde dogrudan belirleyemez/degistiremez;
+      // istemciden boyle alanlar gelse bile yok sayilir.
+      delete body.sifre;
+      delete body.sifreHash;
+      delete body.sifreSalt;
+
+      const mevcutKisi =
+        (db.personel || []).find(
+          p => p.id === req.params.id
+        );
+
       if (body.kullaniciAdi) {
         body.kullaniciAdi =
           String(
@@ -1560,21 +1488,24 @@ app.put(
               'Bu kullanıcı adı zaten kullanılıyor.'
           });
         }
+
+        // Bir personele ILK KEZ giris yetkisi (kullanici adi) atandiginda,
+        // ilk sifre kullanici adiyla ayni olacak sekilde otomatik atanir.
+        // Kullanici ilk girisinden sonra giris ekranindaki "Şifre Yenile"
+        // ile kendi sifresini belirlemelidir. Zaten bir kullanici adi olan
+        // kisinin sifresine admin hicbir zaman dokunamaz/goremez.
+        if (mevcutKisi && !mevcutKisi.kullaniciAdi) {
+          const {
+            salt,
+            hash
+          } = hashPassword(
+            body.kullaniciAdi
+          );
+
+          body.sifreSalt = salt;
+          body.sifreHash = hash;
+        }
       }
-
-      if (body.sifre) {
-        const {
-          salt,
-          hash
-        } = hashPassword(
-          body.sifre
-        );
-
-        body.sifreSalt = salt;
-        body.sifreHash = hash;
-      }
-
-      delete body.sifre;
 
       if (body.rol) {
         body.rol = normalizeRol(body.rol);

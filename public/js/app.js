@@ -303,7 +303,7 @@ function initSifreYenileAkisi() {
       const bolumSelect = document.getElementById('sifreYenileBolumId');
       if (bolumSelect) bolumSelect.value = document.getElementById('loginBolumId').value;
       document.getElementById('sifreYenileKullaniciAdi').value = document.getElementById('loginKullaniciAdi').value;
-      document.getElementById('sifreYenileKod').value = '';
+      document.getElementById('sifreYenileMevcutSifre').value = '';
       document.getElementById('sifreYenileYeniSifre').value = '';
       document.getElementById('sifreYenileHata').style.display = 'none';
       document.getElementById('sifreYenileBasari').style.display = 'none';
@@ -320,15 +320,15 @@ function initSifreYenileAkisi() {
       e.preventDefault();
       const bolumId = document.getElementById('sifreYenileBolumId').value;
       const kullaniciAdi = document.getElementById('sifreYenileKullaniciAdi').value.trim();
-      const kod = document.getElementById('sifreYenileKod').value.trim();
+      const mevcutSifre = document.getElementById('sifreYenileMevcutSifre').value;
       const yeniSifre = document.getElementById('sifreYenileYeniSifre').value;
       const hataBox = document.getElementById('sifreYenileHata');
       const basariBox = document.getElementById('sifreYenileBasari');
       const btn = document.getElementById('sifreYenileBtn');
       hataBox.style.display = 'none';
       basariBox.style.display = 'none';
-      if (!bolumId || !kullaniciAdi || !kod) {
-        hataBox.textContent = '⚠ Lütfen bölüm, kullanıcı adı ve sıfırlama kodunu girin.';
+      if (!bolumId || !kullaniciAdi || !mevcutSifre) {
+        hataBox.textContent = '⚠ Lütfen bölüm, kullanıcı adı ve mevcut şifrenizi girin.';
         hataBox.style.display = 'block';
         return;
       }
@@ -338,7 +338,7 @@ function initSifreYenileAkisi() {
         const res = await fetch('/api/auth/sifre-yenile', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bolumId, kullaniciAdi, kod, yeniSifre })
+          body: JSON.stringify({ bolumId, kullaniciAdi, mevcutSifre, yeniSifre })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Şifre yenilenemedi.');
@@ -1005,74 +1005,42 @@ function renderKullaniciYonetimiTable() {
   if (!tbody) return;
 
   if (state.personelList.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#6b7280;">Henüz personel eklenmedi. Önce "Personel" sekmesinden personel ekleyin.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#6b7280;">Henüz personel eklenmedi. Önce "Personel" sekmesinden personel ekleyin.</td></tr>`;
     return;
   }
 
   tbody.innerHTML = state.personelList.map(p => {
     const rol = normalizeRolClient(p.rol);
-    const kodDurumu = p.sifirlamaKoduAktif
-      ? `<span class="badge badge-devam" style="margin-right:6px;">Aktif kod var</span>`
-      : '';
     return `
     <tr data-user-row="${p.id}">
       <td>${personAvatarHtml(p, 32)} ${escapeHtml(p.ad)}</td>
       <td><input type="text" class="ku-username" data-ku-username="${p.id}" value="${escapeHtml(p.kullaniciAdi || '')}" placeholder="kullanıcı adı (opsiyonel)"></td>
-      <td><input type="password" class="ku-password" data-ku-password="${p.id}" placeholder="değiştirmek için girin" autocomplete="new-password"></td>
       <td>
         <select data-ku-rol="${p.id}">
           ${ROL_SECENEKLERI.map(r => `<option value="${r.value}" ${r.value === rol ? 'selected' : ''}>${r.label}</option>`).join('')}
         </select>
       </td>
-      <td>${kodDurumu}<button type="button" class="icon-btn" data-ku-kod-olustur="${p.id}" ${p.kullaniciAdi ? '' : 'disabled title="Önce kullanıcı adı belirleyin"'}>Sıfırlama Kodu Oluştur</button></td>
       <td><button type="button" class="icon-btn" data-ku-save="${p.id}">Kaydet</button></td>
     </tr>
   `;
   }).join('');
 
-  tbody.querySelectorAll('[data-ku-kod-olustur]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.kuKodOlustur;
-      const kisi = state.personelList.find(p => p.id === id);
-      if (!confirm(`${kisi ? kisi.ad : 'Bu kullanıcı'} için tek kullanımlık bir şifre sıfırlama kodu oluşturulsun mu? Mevcut kod varsa geçersiz olur.`)) return;
-      btn.disabled = true;
-      const eskiMetin = btn.textContent;
-      btn.textContent = 'Oluşturuluyor…';
-      try {
-        const res = await fetch(`/api/personel/${id}/sifirlama-kodu`, { method: 'POST' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Kod oluşturulamadı.');
-        alert(`Sıfırlama kodu: ${data.kod}\n\nBu kodu SADECE ${kisi ? kisi.ad : 'ilgili kullanıcıya'} iletin. Kod 30 dakika geçerlidir ve tek kullanımlıktır; bir daha gösterilmeyecektir.`);
-        await loadPersonelList();
-      } catch (err) {
-        alert('⚠ ' + err.message);
-        btn.disabled = false;
-        btn.textContent = eskiMetin;
-      }
-    });
-  });
-
   tbody.querySelectorAll('[data-ku-save]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.kuSave;
       const usernameEl = tbody.querySelector(`[data-ku-username="${id}"]`);
-      const passwordEl = tbody.querySelector(`[data-ku-password="${id}"]`);
       const rolEl = tbody.querySelector(`[data-ku-rol="${id}"]`);
 
       const kullaniciAdi = usernameEl.value.trim();
-      const sifre = passwordEl.value;
       const rol = rolEl.value;
+      const mevcut = state.personelList.find(p => p.id === id);
+      const ilkKezAtaniyor = kullaniciAdi && (!mevcut || !mevcut.kullaniciAdi);
 
-      if (kullaniciAdi && !sifre) {
-        const mevcut = state.personelList.find(p => p.id === id);
-        if (!mevcut || !mevcut.kullaniciAdi) {
-          alert('Bu kişi için yeni bir kullanıcı adı belirlediniz; ilk şifreyi de girmeniz gerekiyor.');
-          return;
-        }
+      if (ilkKezAtaniyor && !confirm(`"${kullaniciAdi}" kullanıcı adıyla ilk giriş yetkisi tanımlanacak. İlk şifresi otomatik olarak kullanıcı adıyla aynı ("${kullaniciAdi}") olacak; kişiye bunu iletin ve giriş ekranındaki "Şifre Yenile" ile kendi şifresini belirlemesini söyleyin. Devam edilsin mi?`)) {
+        return;
       }
 
       const payload = { kullaniciAdi, rol };
-      if (sifre) payload.sifre = sifre;
 
       btn.disabled = true;
       btn.textContent = 'Kaydediliyor…';
@@ -1084,9 +1052,8 @@ function renderKullaniciYonetimiTable() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Kaydedilemedi.');
-        passwordEl.value = '';
         await loadPersonelList();
-        showToast('Kullanıcı bilgileri güncellendi.');
+        showToast(ilkKezAtaniyor ? `Kullanıcı oluşturuldu. İlk şifre: "${kullaniciAdi}"` : 'Kullanıcı bilgileri güncellendi.');
         renderKullaniciYonetimiTable();
       } catch (err) {
         alert('⚠ ' + err.message);
