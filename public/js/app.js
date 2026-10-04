@@ -1741,7 +1741,7 @@ function openDayModal(category, day) {
           <div class="person-chip-list" data-list-for="${f.key}">
             ${list.map(item => `
               <div class="person-chip">
-                <span>${escapeHtml(getPersonName(item.personelId))}${f.type === 'personHours' ? ` — ${item.saat || 0} saat` : ''}${item.numara ? ` <strong>#${escapeHtml(item.numara)}</strong>` : ''}${item.not ? `<em class="chip-note"> · ${escapeHtml(item.not)}</em>` : ''}</span>
+                <span>${escapeHtml(getPersonName(item.personelId))}${f.type === 'personHours' ? ` — ${item.saat || 0} saat` : ''}${item.numara ? ` <strong>#${escapeHtml(item.numara)}</strong>` : ''}${item.partiNo ? ` <em class="chip-note">· Parti: ${escapeHtml(item.partiNo)}</em>` : ''}${item.not ? `<em class="chip-note"> · ${escapeHtml(item.not)}</em>` : ''}</span>
                 ${isLocked ? '' : `<button type="button" class="chip-remove" data-remove-item="${f.key}:${item.id}">✕</button>`}
               </div>
             `).join('') || `<div class="person-chip-empty">Kayıt yok</div>`}
@@ -1751,6 +1751,7 @@ function openDayModal(category, day) {
             <select data-add-select="${f.key}"></select>
             ${f.type === 'personHours' ? `<input type="number" min="0" step="0.5" placeholder="saat" data-add-hours="${f.key}" style="width:70px;">` : ''}
             ${numaraGerekli ? `<input type="text" placeholder="${f.key === 'asd' ? 'ASD' : 'Sapma'} Numarası (opsiyonel)" data-add-numara="${f.key}" style="flex:1;min-width:130px;">` : ''}
+            ${numaraGerekli ? `<input type="text" placeholder="Hammadde Parti No (opsiyonel)" data-add-parti="${f.key}" style="flex:1;min-width:130px;">` : ''}
             <input type="text" placeholder="${numaraGerekli ? 'Açma Nedeni (opsiyonel)' : 'Not (opsiyonel)'}" data-add-note="${f.key}" style="flex:1;min-width:110px;">
             <button type="button" class="btn-small" data-add-btn="${f.key}">+ Ekle</button>
           </div>
@@ -1790,6 +1791,8 @@ function openDayModal(category, day) {
         }
         const numaraInput = modalBody.querySelector(`[data-add-numara="${key}"]`);
         if (numaraInput && numaraInput.value.trim()) item.numara = numaraInput.value.trim();
+        const partiInput = modalBody.querySelector(`[data-add-parti="${key}"]`);
+        if (partiInput && partiInput.value.trim()) item.partiNo = partiInput.value.trim();
         const noteInput = modalBody.querySelector(`[data-add-note="${key}"]`);
         if (noteInput && noteInput.value.trim()) item.not = noteInput.value.trim();
         if (!draft[key]) draft[key] = [];
@@ -2448,16 +2451,17 @@ function getFilteredAsdSapmaKayitlari() {
 
 function asdSapmaRowsHtml(kayitlar) {
   if (kayitlar.length === 0) {
-    return `<tr><td colspan="7" style="text-align:center;color:#6b7280;">Filtreye uyan bir ASD/Sapma kaydı yok.</td></tr>`;
+    return `<tr><td colspan="8" style="text-align:center;color:#6b7280;">Filtreye uyan bir ASD/Sapma kaydı yok.</td></tr>`;
   }
   return kayitlar.map(k => {
     const baglıAksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
     return `
     <tr>
-      <td><strong>${escapeHtml(k.numara || '')}</strong></td>
+      <td><button type="button" class="asd-sapma-numara-link" data-asd-sapma-detay="${k.id}">${escapeHtml(k.numara || '(numarasız)')}</button></td>
       <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
       <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</td>
       <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${k.partiNo ? escapeHtml(k.partiNo) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
       <td>${k.neden ? escapeHtml(k.neden) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
       <td>${baglıAksiyon ? `<span class="badge ${badgeClass(baglıAksiyon.durum)}">${baglıAksiyon.durum}</span>` : '<span style="color:#9ca3af;">-</span>'}</td>
       <td><button type="button" class="icon-btn danger" data-del-asd-sapma="${k.id}">Sil</button></td>
@@ -2472,7 +2476,9 @@ function asdSapmaBlokHtml() {
     <div class="category-hedef" style="margin-top:0;">
       Günlük Takip → Kalite bölümünde bir ASD veya Sapma eklenirken bir numara
       girilirse, buraya otomatik olarak bir kayıt düşer ve Aksiyonlar listesine
-      bağlı bir aksiyon açılır. Bu liste sadece görüntüleme amaçlıdır.
+      bağlı bir aksiyon açılır. Numaraya tıklayarak tüm detayları (bağlı
+      aksiyonun güncel durumu dahil) görebilir, hammadde parti no bilgisini
+      sonradan girebilir/güncelleyebilirsiniz.
     </div>
     <div class="asd-sapma-filtre">
       <div class="asd-sapma-filtre-row">
@@ -2495,6 +2501,7 @@ function asdSapmaBlokHtml() {
       <div class="asd-sapma-export-row">
         <button type="button" class="btn-small" id="asdSapmaExcelBtn">⬇ Excel İndir</button>
         <button type="button" class="btn-small" id="asdSapmaPdfBtn">⬇ PDF İndir</button>
+        <button type="button" class="icon-btn danger" id="asdSapmaYetimTemizleBtn" title="Kayıt defterinden silinmiş ama Personel Bazlı Özet'te sayılmaya devam eden eski ASD/Sapma öğelerini temizler.">🧹 Yetim Kayıtları Temizle</button>
       </div>
     </div>
     <table class="actions-table">
@@ -2504,6 +2511,7 @@ function asdSapmaBlokHtml() {
           <th>Tür</th>
           <th>Açan</th>
           <th>Tarih</th>
+          <th>Hammadde Parti No</th>
           <th>Açma Nedeni</th>
           <th>Bağlı Aksiyon Durumu</th>
           <th>İşlem</th>
@@ -2548,14 +2556,102 @@ function initAsdSapmaBlok() {
   excelBtn.addEventListener('click', exportAsdSapmaExcel);
   pdfBtn.addEventListener('click', exportAsdSapmaPdf);
 
+  const yetimBtn = document.getElementById('asdSapmaYetimTemizleBtn');
+  if (yetimBtn) yetimBtn.addEventListener('click', temizleYetimAsdSapma);
+
   // Tbody icerigi filtre degistiginde yeniden yazildigi icin dinleyiciyi
   // satirlara degil, hep ayakta kalan tbody elemanina (event delegation) bagliyoruz.
   if (tbody) {
     tbody.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-del-asd-sapma]');
-      if (btn) deleteAsdSapmaKayit(btn.dataset.delAsdSapma);
+      const delBtn = e.target.closest('[data-del-asd-sapma]');
+      if (delBtn) { deleteAsdSapmaKayit(delBtn.dataset.delAsdSapma); return; }
+
+      const detayBtn = e.target.closest('[data-asd-sapma-detay]');
+      if (detayBtn) { openAsdSapmaDetayModal(detayBtn.dataset.asdSapmaDetay); }
     });
   }
+}
+
+function openAsdSapmaDetayModal(id) {
+  const k = (state.asdSapmaKayitlari || []).find(x => x.id === id);
+  if (!k) return;
+  const baglıAksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>${k.tur === 'sapma' ? 'Sapma' : 'ASD'} #${escapeHtml(k.numara || '(numarasız)')}</h3>
+        <button class="modal-close" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="person-total-row">Tür: <strong>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</strong></div>
+        <div class="person-total-row">Açan: <strong>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</strong></div>
+        <div class="person-total-row">Tarih: <strong>${k.tarih ? formatDateSimpleTR(k.tarih) : '-'}</strong></div>
+
+        <label class="modal-field" style="margin-top:12px;">
+          <span>Hammadde Parti No</span>
+          <input type="text" id="asdSapmaDetayPartiNo" value="${escapeHtml(k.partiNo || '')}" placeholder="örn. PN-2026-0456">
+        </label>
+        <label class="modal-field">
+          <span>Açma Nedeni</span>
+          <textarea id="asdSapmaDetayNeden" rows="3" placeholder="Açma nedeni">${escapeHtml(k.neden || '')}</textarea>
+        </label>
+        <div id="asdSapmaDetayKaydetDurum" style="font-size:12.5px;min-height:16px;"></div>
+        <button type="button" class="btn-small" id="asdSapmaDetayKaydetBtn">Kaydet</button>
+
+        <div class="modal-field-group-label" style="margin-top:18px;">Bağlı Aksiyon</div>
+        ${baglıAksiyon ? `
+          <div class="person-total-row">Başlık: <strong>${escapeHtml(baglıAksiyon.baslik || '')}</strong></div>
+          <div class="person-total-row">Durum: <span class="badge ${badgeClass(baglıAksiyon.durum)}">${escapeHtml(baglıAksiyon.durum || '')}</span></div>
+          <div class="person-total-row">Sahibi: <strong>${baglıAksiyon.sahibiId ? escapeHtml(getPersonName(baglıAksiyon.sahibiId)) : '-'}</strong></div>
+          <div class="person-total-row">Başlangıç: <strong>${baglıAksiyon.baslangic ? formatDateSimpleTR(baglıAksiyon.baslangic) : '-'}</strong></div>
+          <div class="person-total-row">Bitiş: <strong>${baglıAksiyon.bitis ? formatDateSimpleTR(baglıAksiyon.bitis) : '-'}</strong></div>
+          <div class="person-total-row">Açıklama: <strong>${baglıAksiyon.aciklama ? escapeHtml(baglıAksiyon.aciklama) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</strong></div>
+        ` : `<p style="color:#9ca3af;font-size:13px;">Bağlı bir aksiyon bulunamadı (ayrıca silinmiş olabilir).</p>`}
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <button type="button" class="btn-primary" id="asdSapmaDetayKapatBtn">Kapat</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('.modal-close').addEventListener('click', close);
+  overlay.querySelector('#asdSapmaDetayKapatBtn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const kaydetBtn = overlay.querySelector('#asdSapmaDetayKaydetBtn');
+  kaydetBtn.addEventListener('click', async () => {
+    const partiNo = overlay.querySelector('#asdSapmaDetayPartiNo').value.trim();
+    const neden = overlay.querySelector('#asdSapmaDetayNeden').value.trim();
+    const durumEl = overlay.querySelector('#asdSapmaDetayKaydetDurum');
+    kaydetBtn.disabled = true;
+    kaydetBtn.textContent = 'Kaydediliyor…';
+    try {
+      const res = await fetch(`/api/asd-sapma/${k.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partiNo, neden })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Kaydedilemedi.');
+      k.partiNo = partiNo;
+      k.neden = neden;
+      durumEl.textContent = '✓ Kaydedildi.';
+      durumEl.style.color = '#1e7d2e';
+      renderAsdSapmaTableBodyOnly();
+    } catch (err) {
+      durumEl.textContent = '⚠ ' + err.message;
+      durumEl.style.color = '#b91c1c';
+    } finally {
+      kaydetBtn.disabled = false;
+      kaydetBtn.textContent = 'Kaydet';
+    }
+  });
 }
 
 async function deleteAsdSapmaKayit(id) {
@@ -2565,8 +2661,32 @@ async function deleteAsdSapmaKayit(id) {
     alert('Kayıt silinemedi. Bu işlem için admin yetkisi gerekiyor.');
     return;
   }
-  state.asdSapmaKayitlari = (state.asdSapmaKayitlari || []).filter(k => k.id !== id);
-  renderAsdSapmaTableBodyOnly();
+  // Kaynak gundeki ogenin de silinmis olabilecegi (Personel Bazli Ozet
+  // sayimini etkiler) icin sadece tabloyu degil, tum Ozet sayfasini
+  // yeniden yukluyoruz.
+  await renderOzet();
+}
+
+async function temizleYetimAsdSapma() {
+  if (!confirm('Kayıt defterinden silinmiş ama Günlük Takip → Kalite verisinde hâlâ duran (ve bu yüzden Personel Bazlı Özet\'te sayılmaya devam eden) eski ASD/Sapma öğeleri taranıp silinecek. Devam edilsin mi?')) return;
+  const btn = document.getElementById('asdSapmaYetimTemizleBtn');
+  const eskiMetin = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Taranıyor…'; }
+  try {
+    const res = await fetch('/api/asd-sapma/yetim-temizle', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Temizlik başarısız oldu.');
+    if (data.temizlenenSayisi > 0) {
+      alert(`${data.temizlenenSayisi} adet yetim ASD/Sapma öğesi temizlendi:\n\n${data.detaylar.join('\n')}`);
+    } else {
+      alert('Temizlenecek bir şey bulunamadı — tüm ASD/Sapma öğeleri kayıt defteriyle uyumlu.');
+    }
+    await renderOzet();
+  } catch (err) {
+    alert('⚠ ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = eskiMetin; }
+  }
 }
 
 function todayStampForFile() {
@@ -2584,6 +2704,7 @@ function exportAsdSapmaExcel() {
       <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
       <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : ''}</td>
       <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${escapeHtml(k.partiNo || '')}</td>
       <td>${escapeHtml(k.neden || '')}</td>
       <td>${baglıAksiyon ? escapeHtml(baglıAksiyon.durum) : ''}</td>
     </tr>`;
@@ -2592,8 +2713,8 @@ function exportAsdSapmaExcel() {
     <head><meta charset="UTF-8"></head>
     <body>
       <table border="1">
-        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Açma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6">Kayıt yok</td></tr>'}</tbody>
+        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Hammadde Parti No</th><th>Açma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="7">Kayıt yok</td></tr>'}</tbody>
       </table>
     </body>
     </html>`;
@@ -2617,6 +2738,7 @@ function exportAsdSapmaPdf() {
       <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
       <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</td>
       <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${escapeHtml(k.partiNo || '-')}</td>
       <td>${escapeHtml(k.neden || '-')}</td>
       <td>${baglıAksiyon ? escapeHtml(baglıAksiyon.durum) : '-'}</td>
     </tr>`;
@@ -2640,8 +2762,8 @@ function exportAsdSapmaPdf() {
       <h1>ASD / Sapma Kayıtları</h1>
       <p>Oluşturulma: ${new Date().toLocaleString('tr-TR')} — ${kayitlar.length} kayıt</p>
       <table>
-        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Açma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" style="text-align:center;">Kayıt yok</td></tr>'}</tbody>
+        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Hammadde Parti No</th><th>Açma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="7" style="text-align:center;">Kayıt yok</td></tr>'}</tbody>
       </table>
     </body>
     </html>`);

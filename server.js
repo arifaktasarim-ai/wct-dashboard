@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-24-4';
+const APP_VERSION = 'v2026-09-24-6';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -1157,6 +1157,7 @@ app.post(
               personelId: item.personelId || '',
               tarih,
               neden: item.not || '',
+              partiNo: item.partiNo || '',
               olusturmaTarihi: new Date().toISOString()
             };
 
@@ -2518,6 +2519,27 @@ app.post(
   }
 );
 
+// Verilen "YYYY-MM-DD" tarihine karsilik gelen gunun Kalite verisini
+// (db.kalite[yearMonth][gun]) bulur. Gun anahtari "5" veya "05" olarak
+// saklanmis olabilir; sayisal karsilastirarak buluyoruz. Hem DELETE hem
+// PUT /api/asd-sapma/:id tarafindan, kayit defteriyle kaynak gunun
+// (Gunluk Takip > Kalite) verisini senkron tutmak icin kullanilir.
+function kaliteGununuBul(db, tarih) {
+  if (!tarih || !/^\d{4}-\d{2}-\d{2}$/.test(tarih)) return null;
+
+  const yearMonth = tarih.slice(0, 7);
+  const gunNo = parseInt(tarih.slice(8, 10), 10);
+
+  const ayVerisi = db.kalite && db.kalite[yearMonth];
+  if (!ayVerisi) return null;
+
+  const gunAnahtari = Object.keys(ayVerisi).find(
+    k => parseInt(k, 10) === gunNo
+  );
+
+  return gunAnahtari ? ayVerisi[gunAnahtari] : null;
+}
+
 app.put(
   '/api/asd-sapma/:id',
   requireRole('kontrolcu'),
@@ -2541,6 +2563,37 @@ app.put(
         ...req.body,
         id: db.asdSapmaKayitlari[idx].id
       };
+
+      const guncelKayit = db.asdSapmaKayitlari[idx];
+
+      // Hammadde Parti No / Açma Nedeni gibi alanlar kayit defterinde
+      // guncellenince, kaynak gunun (Gunluk Takip > Kalite) ayni ogesinde
+      // de guncel kalsin diye orayi da senkronluyoruz.
+      if (
+        ('partiNo' in req.body || 'neden' in req.body) &&
+        guncelKayit.tarih
+      ) {
+        const gunVerisi = kaliteGununuBul(db, guncelKayit.tarih);
+
+        if (gunVerisi) {
+          ['asd', 'sapma'].forEach(alanAdi => {
+            if (!Array.isArray(gunVerisi[alanAdi])) return;
+
+            const ogeIdx = gunVerisi[alanAdi].findIndex(
+              item => item.kayitId === guncelKayit.id
+            );
+
+            if (ogeIdx === -1) return;
+
+            if ('partiNo' in req.body) {
+              gunVerisi[alanAdi][ogeIdx].partiNo = guncelKayit.partiNo || '';
+            }
+            if ('neden' in req.body) {
+              gunVerisi[alanAdi][ogeIdx].not = guncelKayit.neden || '';
+            }
+          });
+        }
+      }
 
       auditEkle(
         db,
@@ -2567,6 +2620,81 @@ app.put(
   }
 );
 
+// ONEMLI: Bu, tek seferlik bir bakim rotasidir. Onceki surumlerde ASD/Sapma
+// kaydi silindiginde (bkz. asagidaki DELETE /api/asd-sapma/:id), kaynak
+// gundeki asd/sapma ogesi silinmiyordu; sadece kayit defterinden ve
+// (kullanici ayrica silmisse) aksiyondan kalkiyordu. Bu da Personel Bazli
+// Ozet'in hala sayan "hayalet" ogeler birakiyordu. Bu rota, kayitId'si olup
+// artik asdSapmaKayitlari'nda karsiligi bulunmayan tum ogeleri bulup
+// kaynagindan (Kalite gunluk verisi) temizler. Bundan sonraki silmeler
+// zaten DELETE /api/asd-sapma/:id icinde otomatik temizleniyor; bu rota
+// sadece GECMISTE olusmus yetimleri temizlemek icindir.
+app.post(
+  '/api/asd-sapma/yetim-temizle',
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const db = readDB(req.currentBolumId);
+
+      const gecerliKayitIdSeti = new Set(
+        (db.asdSapmaKayitlari || []).map(k => k.id)
+      );
+
+      let temizlenenSayisi = 0;
+      const temizlenenler = [];
+
+      Object.entries(db.kalite || {}).forEach(([yearMonth, gunler]) => {
+        Object.entries(gunler || {}).forEach(([gunAnahtari, gunVerisi]) => {
+          ['asd', 'sapma'].forEach(alanAdi => {
+            if (!Array.isArray(gunVerisi[alanAdi])) return;
+
+            const oncekiUzunluk = gunVerisi[alanAdi].length;
+
+            gunVerisi[alanAdi] = gunVerisi[alanAdi].filter(item => {
+              const yetim =
+                item.kayitId && !gecerliKayitIdSeti.has(item.kayitId);
+
+              if (yetim) {
+                temizlenenler.push(
+                  `${yearMonth}-${String(gunAnahtari).padStart(2, '0')} · ${alanAdi === 'asd' ? 'ASD' : 'Sapma'}${item.numara ? ' #' + item.numara : ''}`
+                );
+              }
+
+              return !yetim;
+            });
+
+            temizlenenSayisi +=
+              oncekiUzunluk - gunVerisi[alanAdi].length;
+          });
+        });
+      });
+
+      if (temizlenenSayisi > 0) {
+        auditEkle(
+          db,
+          req,
+          'Yetim ASD/Sapma öğeleri temizlendi',
+          `${temizlenenSayisi} adet — ${temizlenenler.join(', ')}`
+        );
+
+        await writeDB(db, req.currentBolumId);
+      }
+
+      res.json({
+        ok: true,
+        temizlenenSayisi,
+        detaylar: temizlenenler
+      });
+    } catch (err) {
+      console.error('YETIM ASD/SAPMA TEMIZLEME HATASI:', err);
+
+      res.status(500).json({
+        error: 'Temizlik işlemi başarısız oldu.'
+      });
+    }
+  }
+);
+
 app.delete(
   '/api/asd-sapma/:id',
   requireRole('admin'),
@@ -2574,22 +2702,62 @@ app.delete(
     try {
       const db = readDB(req.currentBolumId);
 
+      const kayit =
+        (db.asdSapmaKayitlari || []).find(
+          x => x.id === req.params.id
+        );
+
       db.asdSapmaKayitlari =
         (db.asdSapmaKayitlari || []).filter(
           x => x.id !== req.params.id
         );
 
+      // ONEMLI: Bu kayit, Gunluk Takip > Kalite bolumunde ilgili gunun
+      // asd/sapma listesindeki bir ogeden otomatik turetilmisti (bkz. POST
+      // /api/data/kalite/.../:day, "item.kayitId = kayit.id"). Kayit
+      // defterinden silmek tek basina yetmez: Personel Bazli Ozet ve kisi
+      // detay kartlari sayimlarini dogrudan o gunun ham verisinden
+      // (day.asd / day.sapma) yaptigi icin, kaynak oge orada kalmaya devam
+      // ederse silinen kayit "hayalet" olarak sayilmaya devam eder. Bu
+      // yuzden kaynak gundeki ogeyi de burada temizliyoruz.
+      let kaynakTemizlendi = false;
+
+      if (kayit) {
+        const gunVerisi = kaliteGununuBul(db, kayit.tarih);
+
+        if (gunVerisi) {
+          ['asd', 'sapma'].forEach(alanAdi => {
+            if (Array.isArray(gunVerisi[alanAdi])) {
+              const oncekiUzunluk = gunVerisi[alanAdi].length;
+
+              gunVerisi[alanAdi] =
+                gunVerisi[alanAdi].filter(
+                  item => item.kayitId !== kayit.id
+                );
+
+              if (gunVerisi[alanAdi].length !== oncekiUzunluk) {
+                kaynakTemizlendi = true;
+              }
+            }
+          });
+        }
+      }
+
       auditEkle(
         db,
         req,
         'ASD sapma kaydı silindi',
-        req.params.id
+        req.params.id +
+          (kaynakTemizlendi
+            ? ' (kaynak günün verisinden de temizlendi)'
+            : '')
       );
 
       await writeDB(db, req.currentBolumId);
 
       res.json({
-        ok: true
+        ok: true,
+        kaynakTemizlendi
       });
     } catch (err) {
       console.error(

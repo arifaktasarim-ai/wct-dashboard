@@ -398,6 +398,32 @@ tr.status-row td {
   max-width: 220px;
 }
 
+.modal-field textarea {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  font-family: inherit;
+  flex: 1;
+  max-width: 220px;
+  resize: vertical;
+}
+
+.asd-sapma-numara-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-weight: 700;
+  color: var(--navy);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: inherit;
+}
+
+.asd-sapma-numara-link:hover {
+  opacity: 0.75;
+}
+
 .modal-field-check {
   justify-content: flex-start;
 }
@@ -604,6 +630,47 @@ tr.status-row td {
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 20px;
+}
+
+.asd-sapma-filtre {
+  background: #f7f8fa;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.asd-sapma-filtre .form-row {
+  margin-bottom: 0;
+}
+
+.asd-sapma-filtre-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-bottom: 12px;
+}
+
+.asd-sapma-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.asd-sapma-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.asd-sapma-export-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .form-row {
