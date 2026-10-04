@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-24-6';
+const APP_VERSION = 'v2026-09-24-7';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -1157,6 +1157,7 @@ app.post(
               personelId: item.personelId || '',
               tarih,
               neden: item.not || '',
+              hammaddeAdi: item.hammaddeAdi || '',
               partiNo: item.partiNo || '',
               olusturmaTarihi: new Date().toISOString()
             };
@@ -2073,6 +2074,23 @@ app.put(
         id: db.aksiyonlar[idx].id
       };
 
+      const guncelAksiyon = db.aksiyonlar[idx];
+
+      // Bu aksiyon bir ASD/Sapma kaydindan otomatik acilmis olabilir
+      // (bkz. POST /api/data/kalite/.../:day). Oyle ise, kapatma nedeni
+      // ASD/Sapma kayit defterindeki karsiliginda da gorunsun diye oraya
+      // da yaziyoruz.
+      if ('kapatmaNedeni' in req.body) {
+        const baglıKayit =
+          (db.asdSapmaKayitlari || []).find(
+            k => k.aksiyonId === guncelAksiyon.id
+          );
+
+        if (baglıKayit) {
+          baglıKayit.kapatmaNedeni = guncelAksiyon.kapatmaNedeni || '';
+        }
+      }
+
       auditEkle(
         db,
         req,
@@ -2570,7 +2588,9 @@ app.put(
       // guncellenince, kaynak gunun (Gunluk Takip > Kalite) ayni ogesinde
       // de guncel kalsin diye orayi da senkronluyoruz.
       if (
-        ('partiNo' in req.body || 'neden' in req.body) &&
+        ('partiNo' in req.body ||
+          'hammaddeAdi' in req.body ||
+          'neden' in req.body) &&
         guncelKayit.tarih
       ) {
         const gunVerisi = kaliteGununuBul(db, guncelKayit.tarih);
@@ -2587,6 +2607,9 @@ app.put(
 
             if ('partiNo' in req.body) {
               gunVerisi[alanAdi][ogeIdx].partiNo = guncelKayit.partiNo || '';
+            }
+            if ('hammaddeAdi' in req.body) {
+              gunVerisi[alanAdi][ogeIdx].hammaddeAdi = guncelKayit.hammaddeAdi || '';
             }
             if ('neden' in req.body) {
               gunVerisi[alanAdi][ogeIdx].not = guncelKayit.neden || '';

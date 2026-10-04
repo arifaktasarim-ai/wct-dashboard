@@ -200,7 +200,9 @@ let state = {
     durum: { acik: true, kapali: true },
     baslangic: '',
     bitis: '',
-    numara: ''
+    numara: '',
+    hammaddeAdi: '',
+    partiNo: ''
   }
 };
 
@@ -1741,7 +1743,7 @@ function openDayModal(category, day) {
           <div class="person-chip-list" data-list-for="${f.key}">
             ${list.map(item => `
               <div class="person-chip">
-                <span>${escapeHtml(getPersonName(item.personelId))}${f.type === 'personHours' ? ` — ${item.saat || 0} saat` : ''}${item.numara ? ` <strong>#${escapeHtml(item.numara)}</strong>` : ''}${item.partiNo ? ` <em class="chip-note">· Parti: ${escapeHtml(item.partiNo)}</em>` : ''}${item.not ? `<em class="chip-note"> · ${escapeHtml(item.not)}</em>` : ''}</span>
+                <span>${escapeHtml(getPersonName(item.personelId))}${f.type === 'personHours' ? ` — ${item.saat || 0} saat` : ''}${item.numara ? ` <strong>#${escapeHtml(item.numara)}</strong>` : ''}${item.hammaddeAdi ? ` <em class="chip-note">· ${escapeHtml(item.hammaddeAdi)}</em>` : ''}${item.partiNo ? ` <em class="chip-note">· Parti: ${escapeHtml(item.partiNo)}</em>` : ''}${item.not ? `<em class="chip-note"> · ${escapeHtml(item.not)}</em>` : ''}</span>
                 ${isLocked ? '' : `<button type="button" class="chip-remove" data-remove-item="${f.key}:${item.id}">✕</button>`}
               </div>
             `).join('') || `<div class="person-chip-empty">Kayıt yok</div>`}
@@ -1751,6 +1753,7 @@ function openDayModal(category, day) {
             <select data-add-select="${f.key}"></select>
             ${f.type === 'personHours' ? `<input type="number" min="0" step="0.5" placeholder="saat" data-add-hours="${f.key}" style="width:70px;">` : ''}
             ${numaraGerekli ? `<input type="text" placeholder="${f.key === 'asd' ? 'ASD' : 'Sapma'} Numarası (opsiyonel)" data-add-numara="${f.key}" style="flex:1;min-width:130px;">` : ''}
+            ${numaraGerekli ? `<input type="text" placeholder="Hammadde Adı (opsiyonel)" data-add-hammadde="${f.key}" style="flex:1;min-width:130px;">` : ''}
             ${numaraGerekli ? `<input type="text" placeholder="Hammadde Parti No (opsiyonel)" data-add-parti="${f.key}" style="flex:1;min-width:130px;">` : ''}
             <input type="text" placeholder="${numaraGerekli ? 'Açma Nedeni (opsiyonel)' : 'Not (opsiyonel)'}" data-add-note="${f.key}" style="flex:1;min-width:110px;">
             <button type="button" class="btn-small" data-add-btn="${f.key}">+ Ekle</button>
@@ -1791,6 +1794,8 @@ function openDayModal(category, day) {
         }
         const numaraInput = modalBody.querySelector(`[data-add-numara="${key}"]`);
         if (numaraInput && numaraInput.value.trim()) item.numara = numaraInput.value.trim();
+        const hammaddeInput = modalBody.querySelector(`[data-add-hammadde="${key}"]`);
+        if (hammaddeInput && hammaddeInput.value.trim()) item.hammaddeAdi = hammaddeInput.value.trim();
         const partiInput = modalBody.querySelector(`[data-add-parti="${key}"]`);
         if (partiInput && partiInput.value.trim()) item.partiNo = partiInput.value.trim();
         const noteInput = modalBody.querySelector(`[data-add-note="${key}"]`);
@@ -2322,9 +2327,21 @@ async function renderOzet() {
 
 // ================== AKSIYONLAR ==================
 
+function updateKapatmaNedeniGorunurlugu() {
+  const durum = document.getElementById('actDurum').value;
+  const row = document.getElementById('actKapatmaNedeniRow');
+  if (!row) return;
+  row.style.display = (durum === 'Tamamlandı' || durum === 'İptal') ? 'flex' : 'none';
+}
+
 function initActionForm() {
   const form = document.getElementById('actionForm');
   if (!form) { console.error('[initActionForm] #actionForm bulunamadi'); return; }
+
+  const durumSelect = document.getElementById('actDurum');
+  if (durumSelect) durumSelect.addEventListener('change', updateKapatmaNedeniGorunurlugu);
+  updateKapatmaNedeniGorunurlugu();
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = {
@@ -2333,7 +2350,8 @@ function initActionForm() {
       durum: document.getElementById('actDurum').value,
       baslangic: document.getElementById('actBaslangic').value,
       bitis: document.getElementById('actBitis').value,
-      aciklama: document.getElementById('actAciklama').value.trim()
+      aciklama: document.getElementById('actAciklama').value.trim(),
+      kapatmaNedeni: document.getElementById('actKapatmaNedeni').value.trim()
     };
     if (!payload.baslik) return;
 
@@ -2354,6 +2372,7 @@ function initActionForm() {
     }
 
     form.reset();
+    updateKapatmaNedeniGorunurlugu();
     loadActions();
   });
 }
@@ -2371,32 +2390,64 @@ function badgeClass(durum) {
 }
 
 function renderActions() {
-  const tbody = document.getElementById('actionsTableBody');
-  if (state.actions.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#6b7280;">Henüz aksiyon eklenmedi.</td></tr>`;
-    return;
+  const acikTbody = document.getElementById('actionsTableBody');
+  const kapaliTbody = document.getElementById('kapaliAksiyonlarTableBody');
+  const kapaliBadge = document.getElementById('kapaliAksiyonSayisi');
+
+  const acikAksiyonlar = state.actions.filter(a => a.durum === 'Devam ediyor');
+  const kapaliAksiyonlar = state.actions.filter(a => a.durum !== 'Devam ediyor');
+
+  if (kapaliBadge) kapaliBadge.textContent = kapaliAksiyonlar.length;
+
+  if (acikAksiyonlar.length === 0) {
+    acikTbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#6b7280;">Açık aksiyon yok.</td></tr>`;
+  } else {
+    acikTbody.innerHTML = acikAksiyonlar.map(a => `
+      <tr>
+        <td>${escapeHtml(a.baslik)}</td>
+        <td>${escapeHtml(a.aciklama || '')}</td>
+        <td>${a.sahibiId ? escapeHtml(getPersonName(a.sahibiId)) : '-'}</td>
+        <td>${a.baslangic || ''}</td>
+        <td>${a.bitis || ''}</td>
+        <td><span class="badge ${badgeClass(a.durum)}">${a.durum}</span></td>
+        <td>
+          <button class="icon-btn" data-edit="${a.id}">Düzenle</button>
+          <button class="icon-btn danger" data-delete="${a.id}">Sil</button>
+        </td>
+      </tr>
+    `).join('');
   }
 
-  tbody.innerHTML = state.actions.map(a => `
-    <tr>
-      <td>${escapeHtml(a.baslik)}</td>
-      <td>${escapeHtml(a.aciklama || '')}</td>
-      <td>${a.sahibiId ? escapeHtml(getPersonName(a.sahibiId)) : '-'}</td>
-      <td>${a.baslangic || ''}</td>
-      <td>${a.bitis || ''}</td>
-      <td><span class="badge ${badgeClass(a.durum)}">${a.durum}</span></td>
-      <td>
-        <button class="icon-btn" data-edit="${a.id}">Düzenle</button>
-        <button class="icon-btn danger" data-delete="${a.id}">Sil</button>
-      </td>
-    </tr>
-  `).join('');
+  if (kapaliTbody) {
+    if (kapaliAksiyonlar.length === 0) {
+      kapaliTbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#6b7280;">Henüz kapatılmış bir aksiyon yok.</td></tr>`;
+    } else {
+      kapaliTbody.innerHTML = kapaliAksiyonlar.map(a => `
+        <tr>
+          <td>${escapeHtml(a.baslik)}</td>
+          <td>${escapeHtml(a.aciklama || '')}</td>
+          <td>${a.sahibiId ? escapeHtml(getPersonName(a.sahibiId)) : '-'}</td>
+          <td>${a.baslangic || ''}</td>
+          <td>${a.bitis || ''}</td>
+          <td><span class="badge ${badgeClass(a.durum)}">${a.durum}</span></td>
+          <td>${a.kapatmaNedeni ? escapeHtml(a.kapatmaNedeni) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
+          <td>
+            <button class="icon-btn" data-edit="${a.id}">Düzenle</button>
+            <button class="icon-btn danger" data-delete="${a.id}">Sil</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+  }
 
-  tbody.querySelectorAll('[data-edit]').forEach(btn => {
-    btn.addEventListener('click', () => startEditAction(btn.dataset.edit));
-  });
-  tbody.querySelectorAll('[data-delete]').forEach(btn => {
-    btn.addEventListener('click', () => deleteAction(btn.dataset.delete));
+  [acikTbody, kapaliTbody].forEach(tbody => {
+    if (!tbody) return;
+    tbody.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', () => startEditAction(btn.dataset.edit));
+    });
+    tbody.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', () => deleteAction(btn.dataset.delete));
+    });
   });
 }
 
@@ -2409,6 +2460,8 @@ function startEditAction(id) {
   document.getElementById('actBaslangic').value = action.baslangic || '';
   document.getElementById('actBitis').value = action.bitis || '';
   document.getElementById('actAciklama').value = action.aciklama || '';
+  document.getElementById('actKapatmaNedeni').value = action.kapatmaNedeni || '';
+  updateKapatmaNedeniGorunurlugu();
   state.editingActionId = id;
   document.querySelector('#actionForm .btn-primary').textContent = 'Aksiyonu Güncelle';
   document.getElementById('actionForm').scrollIntoView({ behavior: 'smooth' });
@@ -2445,13 +2498,21 @@ function getFilteredAsdSapmaKayitlari() {
       const q = f.numara.trim().toLowerCase();
       if (!(k.numara || '').toLowerCase().includes(q)) return false;
     }
+    if (f.hammaddeAdi && f.hammaddeAdi.trim()) {
+      const q = f.hammaddeAdi.trim().toLowerCase();
+      if (!(k.hammaddeAdi || '').toLowerCase().includes(q)) return false;
+    }
+    if (f.partiNo && f.partiNo.trim()) {
+      const q = f.partiNo.trim().toLowerCase();
+      if (!(k.partiNo || '').toLowerCase().includes(q)) return false;
+    }
     return true;
   }).slice().sort((a, b) => (b.tarih || '').localeCompare(a.tarih || ''));
 }
 
 function asdSapmaRowsHtml(kayitlar) {
   if (kayitlar.length === 0) {
-    return `<tr><td colspan="8" style="text-align:center;color:#6b7280;">Filtreye uyan bir ASD/Sapma kaydı yok.</td></tr>`;
+    return `<tr><td colspan="10" style="text-align:center;color:#6b7280;">Filtreye uyan bir ASD/Sapma kaydı yok.</td></tr>`;
   }
   return kayitlar.map(k => {
     const baglıAksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
@@ -2461,8 +2522,10 @@ function asdSapmaRowsHtml(kayitlar) {
       <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
       <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</td>
       <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${k.hammaddeAdi ? escapeHtml(k.hammaddeAdi) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
       <td>${k.partiNo ? escapeHtml(k.partiNo) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
       <td>${k.neden ? escapeHtml(k.neden) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
+      <td>${k.kapatmaNedeni ? escapeHtml(k.kapatmaNedeni) : '<em style="color:#9ca3af;">-</em>'}</td>
       <td>${baglıAksiyon ? `<span class="badge ${badgeClass(baglıAksiyon.durum)}">${baglıAksiyon.durum}</span>` : '<span style="color:#9ca3af;">-</span>'}</td>
       <td><button type="button" class="icon-btn danger" data-del-asd-sapma="${k.id}">Sil</button></td>
     </tr>
@@ -2480,30 +2543,41 @@ function asdSapmaBlokHtml() {
       aksiyonun güncel durumu dahil) görebilir, hammadde parti no bilgisini
       sonradan girebilir/güncelleyebilirsiniz.
     </div>
-    <div class="asd-sapma-filtre">
-      <div class="asd-sapma-filtre-row">
-        <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreAsd" ${f.tur.asd ? 'checked' : ''}> ASD</label>
-        <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreSapma" ${f.tur.sapma ? 'checked' : ''}> Sapma</label>
-        <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreAcik" ${f.durum.acik ? 'checked' : ''}> Açık</label>
-        <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreKapali" ${f.durum.kapali ? 'checked' : ''}> Kapalı</label>
+    <details class="ozet-details" style="margin-bottom:14px;">
+      <summary>Filtrele ve Dışa Aktar</summary>
+      <div class="asd-sapma-filtre">
+        <div class="asd-sapma-filtre-row">
+          <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreAsd" ${f.tur.asd ? 'checked' : ''}> ASD</label>
+          <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreSapma" ${f.tur.sapma ? 'checked' : ''}> Sapma</label>
+          <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreAcik" ${f.durum.acik ? 'checked' : ''}> Açık</label>
+          <label class="asd-sapma-check"><input type="checkbox" id="asdSapmaFiltreKapali" ${f.durum.kapali ? 'checked' : ''}> Kapalı</label>
+        </div>
+        <div class="form-row">
+          <label>Tarih Aralığı (Başlangıç)
+            <input type="date" id="asdSapmaFiltreBaslangic" value="${f.baslangic || ''}">
+          </label>
+          <label>Tarih Aralığı (Bitiş)
+            <input type="date" id="asdSapmaFiltreBitis" value="${f.bitis || ''}">
+          </label>
+          <label>Numara Ara
+            <input type="text" id="asdSapmaFiltreNumara" placeholder="örn. 2026-014" value="${escapeHtml(f.numara || '')}">
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Hammadde Adı Ara
+            <input type="text" id="asdSapmaFiltreHammadde" placeholder="örn. Laktoz" value="${escapeHtml(f.hammaddeAdi || '')}">
+          </label>
+          <label>Hammadde Parti No Ara
+            <input type="text" id="asdSapmaFiltreParti" placeholder="örn. PN-2026-0456" value="${escapeHtml(f.partiNo || '')}">
+          </label>
+        </div>
+        <div class="asd-sapma-export-row">
+          <button type="button" class="btn-small" id="asdSapmaExcelBtn">⬇ Excel İndir</button>
+          <button type="button" class="btn-small" id="asdSapmaPdfBtn">⬇ PDF İndir</button>
+          <button type="button" class="icon-btn danger" id="asdSapmaYetimTemizleBtn" title="Kayıt defterinden silinmiş ama Personel Bazlı Özet'te sayılmaya devam eden eski ASD/Sapma öğelerini temizler.">🧹 Yetim Kayıtları Temizle</button>
+        </div>
       </div>
-      <div class="form-row">
-        <label>Tarih Aralığı (Başlangıç)
-          <input type="date" id="asdSapmaFiltreBaslangic" value="${f.baslangic || ''}">
-        </label>
-        <label>Tarih Aralığı (Bitiş)
-          <input type="date" id="asdSapmaFiltreBitis" value="${f.bitis || ''}">
-        </label>
-        <label>Numara Ara
-          <input type="text" id="asdSapmaFiltreNumara" placeholder="örn. 2026-014" value="${escapeHtml(f.numara || '')}">
-        </label>
-      </div>
-      <div class="asd-sapma-export-row">
-        <button type="button" class="btn-small" id="asdSapmaExcelBtn">⬇ Excel İndir</button>
-        <button type="button" class="btn-small" id="asdSapmaPdfBtn">⬇ PDF İndir</button>
-        <button type="button" class="icon-btn danger" id="asdSapmaYetimTemizleBtn" title="Kayıt defterinden silinmiş ama Personel Bazlı Özet'te sayılmaya devam eden eski ASD/Sapma öğelerini temizler.">🧹 Yetim Kayıtları Temizle</button>
-      </div>
-    </div>
+    </details>
     <table class="actions-table">
       <thead>
         <tr>
@@ -2511,8 +2585,10 @@ function asdSapmaBlokHtml() {
           <th>Tür</th>
           <th>Açan</th>
           <th>Tarih</th>
+          <th>Hammadde Adı</th>
           <th>Hammadde Parti No</th>
           <th>Açma Nedeni</th>
+          <th>Kapatma Nedeni</th>
           <th>Bağlı Aksiyon Durumu</th>
           <th>İşlem</th>
         </tr>
@@ -2541,6 +2617,8 @@ function initAsdSapmaBlok() {
   const baslangicInput = document.getElementById('asdSapmaFiltreBaslangic');
   const bitisInput = document.getElementById('asdSapmaFiltreBitis');
   const numaraInput = document.getElementById('asdSapmaFiltreNumara');
+  const hammaddeInput = document.getElementById('asdSapmaFiltreHammadde');
+  const partiInput = document.getElementById('asdSapmaFiltreParti');
   const excelBtn = document.getElementById('asdSapmaExcelBtn');
   const pdfBtn = document.getElementById('asdSapmaPdfBtn');
   const tbody = document.getElementById('asdSapmaKayitlariTableBody');
@@ -2552,6 +2630,8 @@ function initAsdSapmaBlok() {
   baslangicInput.addEventListener('change', () => { f.baslangic = baslangicInput.value; renderAsdSapmaTableBodyOnly(); });
   bitisInput.addEventListener('change', () => { f.bitis = bitisInput.value; renderAsdSapmaTableBodyOnly(); });
   numaraInput.addEventListener('input', () => { f.numara = numaraInput.value; renderAsdSapmaTableBodyOnly(); });
+  hammaddeInput.addEventListener('input', () => { f.hammaddeAdi = hammaddeInput.value; renderAsdSapmaTableBodyOnly(); });
+  partiInput.addEventListener('input', () => { f.partiNo = partiInput.value; renderAsdSapmaTableBodyOnly(); });
 
   excelBtn.addEventListener('click', exportAsdSapmaExcel);
   pdfBtn.addEventListener('click', exportAsdSapmaPdf);
@@ -2591,6 +2671,10 @@ function openAsdSapmaDetayModal(id) {
         <div class="person-total-row">Tarih: <strong>${k.tarih ? formatDateSimpleTR(k.tarih) : '-'}</strong></div>
 
         <label class="modal-field" style="margin-top:12px;">
+          <span>Hammadde Adı</span>
+          <input type="text" id="asdSapmaDetayHammadde" value="${escapeHtml(k.hammaddeAdi || '')}" placeholder="örn. Laktoz">
+        </label>
+        <label class="modal-field">
           <span>Hammadde Parti No</span>
           <input type="text" id="asdSapmaDetayPartiNo" value="${escapeHtml(k.partiNo || '')}" placeholder="örn. PN-2026-0456">
         </label>
@@ -2609,6 +2693,7 @@ function openAsdSapmaDetayModal(id) {
           <div class="person-total-row">Başlangıç: <strong>${baglıAksiyon.baslangic ? formatDateSimpleTR(baglıAksiyon.baslangic) : '-'}</strong></div>
           <div class="person-total-row">Bitiş: <strong>${baglıAksiyon.bitis ? formatDateSimpleTR(baglıAksiyon.bitis) : '-'}</strong></div>
           <div class="person-total-row">Açıklama: <strong>${baglıAksiyon.aciklama ? escapeHtml(baglıAksiyon.aciklama) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</strong></div>
+          <div class="person-total-row">Kapatma Nedeni: <strong>${baglıAksiyon.kapatmaNedeni ? escapeHtml(baglıAksiyon.kapatmaNedeni) : '<em style="color:#9ca3af;">Aksiyon henüz kapatılmadı</em>'}</strong></div>
         ` : `<p style="color:#9ca3af;font-size:13px;">Bağlı bir aksiyon bulunamadı (ayrıca silinmiş olabilir).</p>`}
       </div>
       <div class="modal-footer">
@@ -2626,6 +2711,7 @@ function openAsdSapmaDetayModal(id) {
 
   const kaydetBtn = overlay.querySelector('#asdSapmaDetayKaydetBtn');
   kaydetBtn.addEventListener('click', async () => {
+    const hammaddeAdi = overlay.querySelector('#asdSapmaDetayHammadde').value.trim();
     const partiNo = overlay.querySelector('#asdSapmaDetayPartiNo').value.trim();
     const neden = overlay.querySelector('#asdSapmaDetayNeden').value.trim();
     const durumEl = overlay.querySelector('#asdSapmaDetayKaydetDurum');
@@ -2635,10 +2721,11 @@ function openAsdSapmaDetayModal(id) {
       const res = await fetch(`/api/asd-sapma/${k.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partiNo, neden })
+        body: JSON.stringify({ hammaddeAdi, partiNo, neden })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Kaydedilemedi.');
+      k.hammaddeAdi = hammaddeAdi;
       k.partiNo = partiNo;
       k.neden = neden;
       durumEl.textContent = '✓ Kaydedildi.';
@@ -2704,8 +2791,10 @@ function exportAsdSapmaExcel() {
       <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
       <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : ''}</td>
       <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${escapeHtml(k.hammaddeAdi || '')}</td>
       <td>${escapeHtml(k.partiNo || '')}</td>
       <td>${escapeHtml(k.neden || '')}</td>
+      <td>${escapeHtml(k.kapatmaNedeni || '')}</td>
       <td>${baglıAksiyon ? escapeHtml(baglıAksiyon.durum) : ''}</td>
     </tr>`;
   }).join('');
@@ -2713,8 +2802,8 @@ function exportAsdSapmaExcel() {
     <head><meta charset="UTF-8"></head>
     <body>
       <table border="1">
-        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Hammadde Parti No</th><th>Açma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="7">Kayıt yok</td></tr>'}</tbody>
+        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Hammadde Adı</th><th>Hammadde Parti No</th><th>Açma Nedeni</th><th>Kapatma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="9">Kayıt yok</td></tr>'}</tbody>
       </table>
     </body>
     </html>`;
@@ -2738,8 +2827,10 @@ function exportAsdSapmaPdf() {
       <td>${k.tur === 'sapma' ? 'Sapma' : 'ASD'}</td>
       <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</td>
       <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${escapeHtml(k.hammaddeAdi || '-')}</td>
       <td>${escapeHtml(k.partiNo || '-')}</td>
       <td>${escapeHtml(k.neden || '-')}</td>
+      <td>${escapeHtml(k.kapatmaNedeni || '-')}</td>
       <td>${baglıAksiyon ? escapeHtml(baglıAksiyon.durum) : '-'}</td>
     </tr>`;
   }).join('');
@@ -2762,8 +2853,8 @@ function exportAsdSapmaPdf() {
       <h1>ASD / Sapma Kayıtları</h1>
       <p>Oluşturulma: ${new Date().toLocaleString('tr-TR')} — ${kayitlar.length} kayıt</p>
       <table>
-        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Hammadde Parti No</th><th>Açma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="7" style="text-align:center;">Kayıt yok</td></tr>'}</tbody>
+        <thead><tr><th>Numara</th><th>Tür</th><th>Açan</th><th>Tarih</th><th>Hammadde Adı</th><th>Hammadde Parti No</th><th>Açma Nedeni</th><th>Kapatma Nedeni</th><th>Bağlı Aksiyon Durumu</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="9" style="text-align:center;">Kayıt yok</td></tr>'}</tbody>
       </table>
     </body>
     </html>`);

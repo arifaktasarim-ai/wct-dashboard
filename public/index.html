@@ -147,6 +147,11 @@
               <textarea id="actAciklama" rows="2"></textarea>
             </label>
           </div>
+          <div class="form-row" id="actKapatmaNedeniRow" style="display:none;">
+            <label class="full-width">Kapatma Nedeni
+              <textarea id="actKapatmaNedeni" rows="2" placeholder="Bu aksiyon neden tamamlandı/iptal edildi?"></textarea>
+            </label>
+          </div>
           <button type="submit" class="btn-primary">Aksiyon Ekle</button>
         </form>
 
@@ -164,6 +169,27 @@
           </thead>
           <tbody id="actionsTableBody"></tbody>
         </table>
+
+        <details class="ozet-details" id="kapaliAksiyonlarDetails" style="margin-top:14px;">
+          <summary>Kapalı Aksiyonlar <span class="ozet-count-badge" id="kapaliAksiyonSayisi">0</span></summary>
+          <div class="ozet-details-body">
+            <table class="actions-table">
+              <thead>
+                <tr>
+                  <th>Aksiyon</th>
+                  <th>Açıklama</th>
+                  <th>Sahibi</th>
+                  <th>Başlangıç</th>
+                  <th>Bitiş</th>
+                  <th>Durum</th>
+                  <th>Kapatma Nedeni</th>
+                  <th>İşlem</th>
+                </tr>
+              </thead>
+              <tbody id="kapaliAksiyonlarTableBody"></tbody>
+            </table>
+          </div>
+        </details>
       </div>
     </details>
 
