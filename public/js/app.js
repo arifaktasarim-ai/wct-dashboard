@@ -2230,7 +2230,9 @@ async function renderOzet() {
     <div class="duyuru-thumb-box" ${d.src ? `data-duyuru-view="${d.key}"` : ''}>
       <div class="duyuru-thumb-label">${d.label}</div>
       ${d.src
-        ? `<img src="${d.src}" class="duyuru-thumb-img">`
+        ? (isPdfDataUrl(d.src)
+            ? `<div class="duyuru-thumb-pdf">📄 PDF<br>(görüntülemek için tıklayın)</div>`
+            : `<img src="${d.src}" class="duyuru-thumb-img">`)
         : `<div class="duyuru-thumb-empty">Henüz yüklenmedi</div>`}
     </div>
   `).join('');
@@ -2312,7 +2314,12 @@ async function renderOzet() {
   container.querySelectorAll('[data-duyuru-view]').forEach(box => {
     box.addEventListener('click', () => {
       const item = duyuruItems.find(d => d.key === box.dataset.duyuruView);
-      if (item && item.src) openImageLightbox(item.src, item.label);
+      if (!item || !item.src) return;
+      if (isPdfDataUrl(item.src)) {
+        window.open(item.src, '_blank');
+      } else {
+        openImageLightbox(item.src, item.label);
+      }
     });
   });
 
@@ -3383,13 +3390,20 @@ function renderNotlar() {
 // ================== DUYURULAR (OPL / SEE CARD-ONERI / KALIBRASYON TABLOSU GORSELLERI) ==================
 
 const DUYURU_TANIMLARI = [
-  { key: 'opl', label: 'One Point Lesson (OPL)', fileId: 'duyuruOplFile', previewId: 'duyuruOplPreview', clearId: 'duyuruOplClear' },
-  { key: 'seeCardKarekod', label: 'See Card / Öneri Karekodu', fileId: 'duyuruKarekodFile', previewId: 'duyuruKarekodPreview', clearId: 'duyuruKarekodClear' },
-  { key: 'kalibrasyonTablosu', label: 'Kalibrasyon Tablosu', fileId: 'duyuruKalibrasyonFile', previewId: 'duyuruKalibrasyonPreview', clearId: 'duyuruKalibrasyonClear' },
-  { key: 'diger1', label: 'Diğer 1', fileId: 'duyuruDiger1File', previewId: 'duyuruDiger1Preview', clearId: 'duyuruDiger1Clear' },
-  { key: 'diger2', label: 'Diğer 2', fileId: 'duyuruDiger2File', previewId: 'duyuruDiger2Preview', clearId: 'duyuruDiger2Clear' },
-  { key: 'diger3', label: 'Diğer 3', fileId: 'duyuruDiger3File', previewId: 'duyuruDiger3Preview', clearId: 'duyuruDiger3Clear' }
+  { key: 'opl', label: 'One Point Lesson (OPL)', fileId: 'duyuruOplFile', previewId: 'duyuruOplPreview', pdfBadgeId: 'duyuruOplPdfBadge', clearId: 'duyuruOplClear' },
+  { key: 'seeCardKarekod', label: 'See Card / Öneri Karekodu', fileId: 'duyuruKarekodFile', previewId: 'duyuruKarekodPreview', pdfBadgeId: 'duyuruKarekodPdfBadge', clearId: 'duyuruKarekodClear' },
+  { key: 'kalibrasyonTablosu', label: 'Kalibrasyon Tablosu', fileId: 'duyuruKalibrasyonFile', previewId: 'duyuruKalibrasyonPreview', pdfBadgeId: 'duyuruKalibrasyonPdfBadge', clearId: 'duyuruKalibrasyonClear' },
+  { key: 'diger1', label: 'Diğer 1', fileId: 'duyuruDiger1File', previewId: 'duyuruDiger1Preview', pdfBadgeId: 'duyuruDiger1PdfBadge', clearId: 'duyuruDiger1Clear' },
+  { key: 'diger2', label: 'Diğer 2', fileId: 'duyuruDiger2File', previewId: 'duyuruDiger2Preview', pdfBadgeId: 'duyuruDiger2PdfBadge', clearId: 'duyuruDiger2Clear' },
+  { key: 'diger3', label: 'Diğer 3', fileId: 'duyuruDiger3File', previewId: 'duyuruDiger3Preview', pdfBadgeId: 'duyuruDiger3PdfBadge', clearId: 'duyuruDiger3Clear' }
 ];
+
+// Yuklenen dosya bir PDF ise base64 veri URL'i "data:application/pdf" ile
+// baslar; gorsellerden ayirt etmek (ve <img> yerine indirme/goruntuleme
+// baglantisi gostermek) icin kullaniliyor.
+function isPdfDataUrl(src) {
+  return typeof src === 'string' && src.startsWith('data:application/pdf');
+}
 
 async function loadDuyurular() {
   const res = await fetch('/api/duyurular');
@@ -3401,16 +3415,25 @@ function fillDuyuruPreviews() {
   const d = state.duyurular || {};
   DUYURU_TANIMLARI.forEach(t => {
     const img = document.getElementById(t.previewId);
+    const pdfBadge = document.getElementById(t.pdfBadgeId);
     const clearBtn = document.getElementById(t.clearId);
     if (!img || !clearBtn) return;
-    if (d[t.key]) {
-      img.src = d[t.key];
-      img.style.display = 'block';
-      clearBtn.style.display = 'inline-block';
-    } else {
+    const deger = d[t.key];
+    if (!deger) {
       img.style.display = 'none';
+      if (pdfBadge) pdfBadge.style.display = 'none';
       clearBtn.style.display = 'none';
+      return;
     }
+    if (isPdfDataUrl(deger)) {
+      img.style.display = 'none';
+      if (pdfBadge) { pdfBadge.href = deger; pdfBadge.style.display = 'flex'; }
+    } else {
+      img.src = deger;
+      img.style.display = 'block';
+      if (pdfBadge) pdfBadge.style.display = 'none';
+    }
+    clearBtn.style.display = 'inline-block';
   });
 }
 
@@ -3423,6 +3446,12 @@ function initDuyuruUploads() {
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      const izinliTur = file.type === 'application/pdf' || file.type.startsWith('image/');
+      if (!izinliTur) {
+        alert('Sadece görsel (JPG, PNG, vb.) veya PDF dosyası yükleyebilirsiniz.');
+        fileInput.value = '';
+        return;
+      }
       const base64 = await fileToBase64(file);
       const res = await fetch('/api/duyurular', {
         method: 'POST',
