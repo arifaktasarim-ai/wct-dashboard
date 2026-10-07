@@ -1443,6 +1443,7 @@ body.compact-mode .ozet-stat-card {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  width: 100%;
   max-width: 100%;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -1451,8 +1452,10 @@ body.compact-mode .ozet-stat-card {
   margin: 0 auto 8px auto;
   font-size: 12.5px;
   font-weight: 600;
+  font-family: inherit;
   color: var(--navy);
   text-decoration: none;
+  cursor: pointer;
 }
 
 .duyuru-pdf-badge:hover { background: #f7f8fa; }

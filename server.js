@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-24-8';
+const APP_VERSION = 'v2026-09-24-9';
 
 app.get('/api/version', (req, res) => {
   res.json({

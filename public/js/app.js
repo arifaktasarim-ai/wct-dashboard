@@ -2316,7 +2316,7 @@ async function renderOzet() {
       const item = duyuruItems.find(d => d.key === box.dataset.duyuruView);
       if (!item || !item.src) return;
       if (isPdfDataUrl(item.src)) {
-        window.open(item.src, '_blank');
+        openPdfDataUrl(item.src);
       } else {
         openImageLightbox(item.src, item.label);
       }
@@ -3405,6 +3405,34 @@ function isPdfDataUrl(src) {
   return typeof src === 'string' && src.startsWith('data:application/pdf');
 }
 
+// Tarayicilar (ozellikle Chrome), bir data: URL'ini dogrudan yeni sekmede
+// acmayi guvenlik nedeniyle engelliyor ve sekme "about:blank" olarak bos
+// kaliyor. Cozum: data URL'ini once bir Blob'a cevirip blob: URL olarak
+// acmak — bu her tarayicida calisiyor.
+function dataUrlToBlob(dataUrl) {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header.match(/data:(.*?);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+function openPdfDataUrl(dataUrl) {
+  try {
+    const blobUrl = URL.createObjectURL(dataUrlToBlob(dataUrl));
+    const win = window.open(blobUrl, '_blank');
+    if (!win) {
+      alert('PDF açmak için yeni pencere açılamadı. Tarayıcınızın açılır pencere engelleyicisini kontrol edin.');
+    }
+    // Sekme PDF'i yukleyene kadar biraz bekleyip objectURL'i serbest birakiyoruz.
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  } catch (err) {
+    alert('PDF açılırken bir hata oluştu: ' + err.message);
+  }
+}
+
 async function loadDuyurular() {
   const res = await fetch('/api/duyurular');
   state.duyurular = await res.json();
@@ -3427,7 +3455,7 @@ function fillDuyuruPreviews() {
     }
     if (isPdfDataUrl(deger)) {
       img.style.display = 'none';
-      if (pdfBadge) { pdfBadge.href = deger; pdfBadge.style.display = 'flex'; }
+      if (pdfBadge) pdfBadge.style.display = 'flex';
     } else {
       img.src = deger;
       img.style.display = 'block';
@@ -3441,7 +3469,15 @@ function initDuyuruUploads() {
   DUYURU_TANIMLARI.forEach(t => {
     const fileInput = document.getElementById(t.fileId);
     const clearBtn = document.getElementById(t.clearId);
+    const pdfBadge = document.getElementById(t.pdfBadgeId);
     if (!fileInput || !clearBtn) return;
+
+    if (pdfBadge) {
+      pdfBadge.addEventListener('click', () => {
+        const deger = (state.duyurular || {})[t.key];
+        if (deger) openPdfDataUrl(deger);
+      });
+    }
 
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
