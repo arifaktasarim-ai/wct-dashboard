@@ -505,6 +505,51 @@
       </div>
     </details>
 
+    <!-- Ekipman Ekle / Çıkar (sadece admin görür; sunucu da yazmayı admin ile sınırlar) -->
+    <details class="ozet-details settings-group" id="ekipmanGroup" style="display:none;">
+      <summary>🛠 Ekipman Ekle / Çıkar (Sadece Admin)</summary>
+      <div class="ozet-details-body">
+        <div class="category-hedef" style="margin-top:0;">
+          Buradan eklenen ekipmanlar <strong>Günlük Takip → Kalibrasyonlar</strong>
+          bölümünde listelenir ve kalibrasyonları bu ekipmanlar üzerinden takip edilir;
+          ayrıca <strong>Günlük Takip → Verimlilik</strong> bölümünde "Arızalı/Eksik Ekipman"
+          seçiminde kullanılır. Her ekipman için ad, numara ve marka zorunludur.
+        </div>
+
+        <form id="ekipmanForm" class="action-form" style="margin-bottom:14px;">
+          <div class="form-row">
+            <label>Ekipman Adı
+              <input type="text" id="ekpAd" required placeholder="örn. Analitik Terazi">
+            </label>
+            <label>Ekipman Numarası
+              <input type="text" id="ekpNumara" required placeholder="örn. EKP-001">
+            </label>
+            <label>Markası
+              <input type="text" id="ekpMarka" required placeholder="örn. Mettler Toledo">
+            </label>
+          </div>
+          <div class="form-row" style="gap:10px;">
+            <button type="submit" class="btn-primary" id="ekipmanSubmitBtn">Ekipman Ekle</button>
+            <button type="button" class="btn-secondary" id="ekipmanIptalBtn" style="display:none;">Vazgeç</button>
+          </div>
+        </form>
+
+        <div style="overflow-x:auto;">
+          <table class="actions-table">
+            <thead>
+              <tr>
+                <th>Ekipman Adı</th>
+                <th>Ekipman Numarası</th>
+                <th>Markası</th>
+                <th>İşlem</th>
+              </tr>
+            </thead>
+            <tbody id="ekipmanTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
     <details class="ozet-details settings-group" id="bildirimGroup" open>
       <summary>🔔 Bildirimler (Bu Bilgisayar)</summary>
       <div class="ozet-details-body">

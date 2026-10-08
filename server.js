@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-09-24-9';
+const APP_VERSION = 'v2026-10-08-1';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -241,6 +241,7 @@ function defaultBolumVerisi() {
 
       ozetUstSiralama: [
         'notlar',
+        'ekipmanAriza',
         'asdSapma',
         'personel'
       ],
@@ -268,7 +269,13 @@ function defaultBolumVerisi() {
       'Kalite Kontrol Teknisyeni'
     ],
 
-    asdSapmaKayitlari: []
+    asdSapmaKayitlari: [],
+
+    // Ayarlar > Ekipman Ekle / Cikar (sadece admin yonetir)
+    ekipmanlar: [],
+
+    // Gunluk Takip > Verimlilik'te acilan arizali/eksik ekipman kayitlari
+    ekipmanArizaKayitlari: []
   };
 }
 
@@ -305,13 +312,37 @@ function normalizeBolumVerisi(parsed) {
       ? parsed.ayarlar.gunlukSiralama
       : def.ayarlar.gunlukSiralama;
 
-  merged.ayarlar.ozetUstSiralama =
-    (
-      (parsed.ayarlar || {}).ozetUstSiralama &&
-      (parsed.ayarlar || {}).ozetUstSiralama.length === 3
-    )
-      ? parsed.ayarlar.ozetUstSiralama
-      : def.ayarlar.ozetUstSiralama;
+  // Ozet ust bloklari artik 4 oge: notlar, ekipmanAriza, asdSapma, personel.
+  // Eski (3 ogeli) kayitlar kullanicinin kendi sirasi korunarak yukseltilir:
+  // yeni 'ekipmanAriza' blogu 'notlar'in hemen altina eklenir.
+  (function () {
+    const BILINEN = ['notlar', 'ekipmanAriza', 'asdSapma', 'personel'];
+    const eski = (parsed.ayarlar || {}).ozetUstSiralama;
+
+    if (!Array.isArray(eski)) {
+      merged.ayarlar.ozetUstSiralama = def.ayarlar.ozetUstSiralama;
+      return;
+    }
+
+    const liste = [];
+    eski.forEach(k => {
+      if (BILINEN.includes(k) && !liste.includes(k)) liste.push(k);
+    });
+
+    if (!liste.includes('ekipmanAriza')) {
+      const notlarIdx = liste.indexOf('notlar');
+      liste.splice(notlarIdx === -1 ? 0 : notlarIdx + 1, 0, 'ekipmanAriza');
+    }
+
+    BILINEN.forEach(k => {
+      if (!liste.includes(k)) liste.push(k);
+    });
+
+    merged.ayarlar.ozetUstSiralama =
+      liste.length === BILINEN.length
+        ? liste
+        : def.ayarlar.ozetUstSiralama;
+  })();
 
   merged.ayarlar.ozetKartSiralama =
     (
@@ -342,6 +373,14 @@ function normalizeBolumVerisi(parsed) {
 
   merged.asdSapmaKayitlari =
     parsed.asdSapmaKayitlari || [];
+
+  merged.ekipmanlar =
+    Array.isArray(parsed.ekipmanlar) ? parsed.ekipmanlar : [];
+
+  merged.ekipmanArizaKayitlari =
+    Array.isArray(parsed.ekipmanArizaKayitlari)
+      ? parsed.ekipmanArizaKayitlari
+      : [];
 
   // Eski rol isimleriyle kaydedilmis personel varsa (izleyici/yazici/kidemli)
   // her yuklemede/yazmada otomatik olarak yeni 3 seviyeli role gecirilir.
@@ -1192,6 +1231,101 @@ app.post(
         });
       }
 
+      // "Verimlilik" kategorisinde, Arizali/Eksik Ekipman listesine eklenen ve
+      // henuz bir kayda baglanmamis (kayitId'si olmayan) her yeni oge icin
+      // otomatik olarak hem arizali ekipman kayit defterine
+      // (ekipmanArizaKayitlari) hem de Aksiyonlar sayfasina bagli bir aksiyon
+      // acilir. Ayni oge ikinci kez kaydedilince (kayitId varsa) tekrar islenmez.
+      // Dogrulama, hicbir veri degistirilmeden ONCE yapilir.
+      let yeniEkipmanArizaSayisi = 0;
+      if (
+        category === 'verimlilik' &&
+        Array.isArray(merged.arizaliEkipmanList)
+      ) {
+        for (const item of merged.arizaliEkipmanList) {
+          if (!item || item.kayitId) continue;
+
+          const ekp = (db.ekipmanlar || []).find(
+            e => e.id === item.ekipmanId
+          );
+
+          if (!ekp) {
+            return res.status(400).json({
+              error:
+                'Seçilen ekipman bulunamadı. Ekipman listesi değişmiş olabilir; sayfayı yenileyip tekrar deneyin.'
+            });
+          }
+
+          if (!String(item.arizaKodu || '').trim()) {
+            return res.status(400).json({
+              error:
+                'Arızalı/Eksik ekipman için arıza kodu girilmelidir.'
+            });
+          }
+        }
+
+        merged.arizaliEkipmanList.forEach(item => {
+          if (!item || item.kayitId) return;
+
+          const ekp = (db.ekipmanlar || []).find(
+            e => e.id === item.ekipmanId
+          );
+
+          const arizaKodu = String(item.arizaKodu).trim();
+          const tarih = `${yearMonth}-${String(day).padStart(2, '0')}`;
+          const rnd = Math.random().toString(36).slice(2, 6);
+
+          const kayit = {
+            id: 'arz' + Date.now().toString() + rnd,
+            ekipmanId: ekp.id,
+            ekipmanAd: ekp.ad,
+            ekipmanNumara: ekp.numara,
+            ekipmanMarka: ekp.marka,
+            arizaKodu,
+            aciklama: item.not || '',
+            personelId: item.personelId || '',
+            tarih,
+            olusturanId: req.currentUser ? req.currentUser.id : '',
+            olusturmaTarihi: new Date().toISOString()
+          };
+
+          const yeniAksiyon = {
+            id:
+              Date.now().toString() +
+              Math.random().toString(36).slice(2, 6) +
+              'e',
+            baslik: `Arızalı/Eksik Ekipman: ${ekp.ad} (${ekp.numara}) — Arıza Kodu ${arizaKodu}`,
+            aciklama: item.not || '',
+            baslangic: tarih,
+            bitis: '',
+            durum: 'Devam ediyor',
+            sahibiId: item.personelId || '',
+            kaynakTur: 'ekipmanAriza',
+            kaynakNumara: arizaKodu,
+            ekipmanArizaId: kayit.id,
+            olusturmaTarihi: new Date().toISOString()
+          };
+
+          db.ekipmanArizaKayitlari = db.ekipmanArizaKayitlari || [];
+          db.ekipmanArizaKayitlari.push(kayit);
+
+          db.aksiyonlar = db.aksiyonlar || [];
+          db.aksiyonlar.push(yeniAksiyon);
+
+          kayit.aksiyonId = yeniAksiyon.id;
+          item.arizaKodu = arizaKodu;
+          item.kayitId = kayit.id;
+
+          yeniEkipmanArizaSayisi++;
+        });
+
+        // Eski "adet" alani (Ozet/renk hesabi) uyumlu kalsin: ekipman
+        // secilmeden girilmis eski adet + listedeki ekipman sayisi.
+        merged.arizaliEkipman =
+          (Number(merged.arizaliEkipmanEski) || 0) +
+          merged.arizaliEkipmanList.length;
+      }
+
       db[category][yearMonth][day] =
         merged;
 
@@ -1208,6 +1342,15 @@ app.post(
           req,
           'ASD/Sapma numarasından otomatik aksiyon açıldı',
           `${yeniAsdSapmaSayisi} adet — ${yearMonth}/${day}`
+        );
+      }
+
+      if (yeniEkipmanArizaSayisi > 0) {
+        auditEkle(
+          db,
+          req,
+          'Arızalı/Eksik ekipman kaydı ve otomatik aksiyon açıldı',
+          `${yeniEkipmanArizaSayisi} adet — ${yearMonth}/${day}`
         );
       }
 
@@ -2091,6 +2234,19 @@ app.put(
         }
       }
 
+      // Ayni sekilde, arizali/eksik ekipman kaydindan acilmis bir aksiyonsa
+      // kapatma nedeni ekipman ariza kaydinda da gorunsun.
+      if ('kapatmaNedeni' in req.body) {
+        const baglıAriza =
+          (db.ekipmanArizaKayitlari || []).find(
+            k => k.aksiyonId === guncelAksiyon.id
+          );
+
+        if (baglıAriza) {
+          baglıAriza.kapatmaNedeni = guncelAksiyon.kapatmaNedeni || '';
+        }
+      }
+
       auditEkle(
         db,
         req,
@@ -2790,6 +2946,364 @@ app.delete(
 
       res.status(500).json({
         error: 'ASD sapma kaydı silinemedi.'
+      });
+    }
+  }
+);
+
+// ============================================================
+// EKIPMANLAR (Ayarlar > Ekipman Ekle / Cikar)
+// Okuma: giris yapmis herkes (Kalibrasyon ve Verimlilik ekranlari kullanir)
+// Ekleme / degistirme / silme: SADECE admin
+// ============================================================
+
+function ekipmanBilgisiTemizle(body) {
+  body = body || {};
+
+  return {
+    ad: String(body.ad || '').trim(),
+    numara: String(body.numara || '').trim(),
+    marka: String(body.marka || '').trim()
+  };
+}
+
+app.get(
+  '/api/ekipmanlar',
+  (req, res) => {
+    const db = readDB(req.currentBolumId);
+
+    res.json(
+      db.ekipmanlar || []
+    );
+  }
+);
+
+app.post(
+  '/api/ekipmanlar',
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const bilgi = ekipmanBilgisiTemizle(req.body);
+
+      if (!bilgi.ad || !bilgi.numara || !bilgi.marka) {
+        return res.status(400).json({
+          error: 'Ekipman adı, ekipman numarası ve markası zorunludur.'
+        });
+      }
+
+      const db = readDB(req.currentBolumId);
+
+      db.ekipmanlar = db.ekipmanlar || [];
+
+      if (
+        db.ekipmanlar.some(
+          e =>
+            String(e.numara).toLowerCase() ===
+            bilgi.numara.toLowerCase()
+        )
+      ) {
+        return res.status(400).json({
+          error: 'Bu ekipman numarasıyla kayıtlı başka bir ekipman zaten var.'
+        });
+      }
+
+      const yeni = {
+        id:
+          'ekp' +
+          Date.now().toString() +
+          Math.random().toString(36).slice(2, 6),
+        ...bilgi,
+        olusturmaTarihi: new Date().toISOString()
+      };
+
+      db.ekipmanlar.push(yeni);
+
+      auditEkle(
+        db,
+        req,
+        'Ekipman eklendi',
+        `${yeni.ad} (${yeni.numara}) — ${yeni.marka}`
+      );
+
+      await writeDB(db, req.currentBolumId);
+
+      res.json(yeni);
+    } catch (err) {
+      console.error('EKIPMAN EKLEME HATASI:', err);
+
+      res.status(500).json({
+        error: 'Ekipman eklenemedi.'
+      });
+    }
+  }
+);
+
+app.put(
+  '/api/ekipmanlar/:id',
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const bilgi = ekipmanBilgisiTemizle(req.body);
+
+      if (!bilgi.ad || !bilgi.numara || !bilgi.marka) {
+        return res.status(400).json({
+          error: 'Ekipman adı, ekipman numarası ve markası zorunludur.'
+        });
+      }
+
+      const db = readDB(req.currentBolumId);
+
+      const idx =
+        (db.ekipmanlar || []).findIndex(
+          e => e.id === req.params.id
+        );
+
+      if (idx === -1) {
+        return res.status(404).json({
+          error: 'Ekipman bulunamadı.'
+        });
+      }
+
+      if (
+        db.ekipmanlar.some(
+          (e, i) =>
+            i !== idx &&
+            String(e.numara).toLowerCase() ===
+              bilgi.numara.toLowerCase()
+        )
+      ) {
+        return res.status(400).json({
+          error: 'Bu ekipman numarasıyla kayıtlı başka bir ekipman zaten var.'
+        });
+      }
+
+      db.ekipmanlar[idx] = {
+        ...db.ekipmanlar[idx],
+        ...bilgi,
+        id: db.ekipmanlar[idx].id
+      };
+
+      auditEkle(
+        db,
+        req,
+        'Ekipman güncellendi',
+        `${bilgi.ad} (${bilgi.numara}) — ${bilgi.marka}`
+      );
+
+      await writeDB(db, req.currentBolumId);
+
+      res.json(db.ekipmanlar[idx]);
+    } catch (err) {
+      console.error('EKIPMAN GUNCELLEME HATASI:', err);
+
+      res.status(500).json({
+        error: 'Ekipman güncellenemedi.'
+      });
+    }
+  }
+);
+
+// NOT: Ekipman silindiginde gecmis ariza kayitlari ve Kalibrasyon gecmisi
+// bozulmaz; ariza kayitlari ekipman bilgisinin kopyasini (ad/numara/marka)
+// kendi icinde tasir.
+app.delete(
+  '/api/ekipmanlar/:id',
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const db = readDB(req.currentBolumId);
+
+      const ekp =
+        (db.ekipmanlar || []).find(
+          e => e.id === req.params.id
+        );
+
+      if (!ekp) {
+        return res.status(404).json({
+          error: 'Ekipman bulunamadı.'
+        });
+      }
+
+      db.ekipmanlar =
+        db.ekipmanlar.filter(
+          e => e.id !== req.params.id
+        );
+
+      auditEkle(
+        db,
+        req,
+        'Ekipman silindi',
+        `${ekp.ad} (${ekp.numara}) — ${ekp.marka}`
+      );
+
+      await writeDB(db, req.currentBolumId);
+
+      res.json({
+        ok: true
+      });
+    } catch (err) {
+      console.error('EKIPMAN SILME HATASI:', err);
+
+      res.status(500).json({
+        error: 'Ekipman silinemedi.'
+      });
+    }
+  }
+);
+
+// ============================================================
+// ARIZALI / EKSIK EKIPMAN KAYITLARI (Ozet sayfasi)
+// Kayitlar Gunluk Takip > Verimlilik'te sunucu tarafinda otomatik acilir
+// (bkz. POST /api/data/:category/:yearMonth/:day). Acik/kapali durumu,
+// ASD/Sapma ile ayni mantikla bagli aksiyonun durumundan turetilir.
+// ============================================================
+
+// Verilen "YYYY-MM-DD" tarihine karsilik gelen gunun verisini (herhangi bir
+// kategoride) bulur. Gun anahtari "5" veya "05" olarak saklanmis olabilir.
+function gunVerisiniBul(db, kategori, tarih) {
+  if (!tarih || !/^\d{4}-\d{2}-\d{2}$/.test(tarih)) return null;
+
+  const yearMonth = tarih.slice(0, 7);
+  const gunNo = parseInt(tarih.slice(8, 10), 10);
+
+  const ayVerisi = db[kategori] && db[kategori][yearMonth];
+  if (!ayVerisi) return null;
+
+  const gunAnahtari = Object.keys(ayVerisi).find(
+    k => parseInt(k, 10) === gunNo
+  );
+
+  return gunAnahtari ? ayVerisi[gunAnahtari] : null;
+}
+
+app.get(
+  '/api/ekipman-ariza',
+  (req, res) => {
+    const db = readDB(req.currentBolumId);
+
+    res.json(
+      db.ekipmanArizaKayitlari || []
+    );
+  }
+);
+
+app.put(
+  '/api/ekipman-ariza/:id',
+  requireRole('kontrolcu'),
+  async (req, res) => {
+    try {
+      const db = readDB(req.currentBolumId);
+
+      const kayit =
+        (db.ekipmanArizaKayitlari || []).find(
+          k => k.id === req.params.id
+        );
+
+      if (!kayit) {
+        return res.status(404).json({
+          error: 'Arıza kaydı bulunamadı.'
+        });
+      }
+
+      // Sadece aciklama duzenlenebilir; ekipman ve ariza kodu sabittir.
+      if ('aciklama' in req.body) {
+        kayit.aciklama = String(req.body.aciklama || '').trim();
+
+        // Kaynak gundeki (Verimlilik) ogede de guncel kalsin.
+        const gunVerisi = gunVerisiniBul(db, 'verimlilik', kayit.tarih);
+
+        if (gunVerisi && Array.isArray(gunVerisi.arizaliEkipmanList)) {
+          const oge = gunVerisi.arizaliEkipmanList.find(
+            item => item.kayitId === kayit.id
+          );
+
+          if (oge) oge.not = kayit.aciklama;
+        }
+      }
+
+      auditEkle(
+        db,
+        req,
+        'Arızalı/Eksik ekipman kaydı güncellendi',
+        req.params.id
+      );
+
+      await writeDB(db, req.currentBolumId);
+
+      res.json(kayit);
+    } catch (err) {
+      console.error('EKIPMAN ARIZA GUNCELLEME HATASI:', err);
+
+      res.status(500).json({
+        error: 'Arıza kaydı güncellenemedi.'
+      });
+    }
+  }
+);
+
+app.delete(
+  '/api/ekipman-ariza/:id',
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const db = readDB(req.currentBolumId);
+
+      const kayit =
+        (db.ekipmanArizaKayitlari || []).find(
+          k => k.id === req.params.id
+        );
+
+      db.ekipmanArizaKayitlari =
+        (db.ekipmanArizaKayitlari || []).filter(
+          k => k.id !== req.params.id
+        );
+
+      // Kayit, Verimlilik gununden otomatik turetilmisti: kaynak ogeyi de
+      // temizle ve gunun adet alanini yeniden hesapla (hayalet kayit kalmasin).
+      let kaynakTemizlendi = false;
+
+      if (kayit) {
+        const gunVerisi = gunVerisiniBul(db, 'verimlilik', kayit.tarih);
+
+        if (gunVerisi && Array.isArray(gunVerisi.arizaliEkipmanList)) {
+          const onceki = gunVerisi.arizaliEkipmanList.length;
+
+          gunVerisi.arizaliEkipmanList =
+            gunVerisi.arizaliEkipmanList.filter(
+              item => item.kayitId !== kayit.id
+            );
+
+          if (gunVerisi.arizaliEkipmanList.length !== onceki) {
+            kaynakTemizlendi = true;
+
+            gunVerisi.arizaliEkipman =
+              (Number(gunVerisi.arizaliEkipmanEski) || 0) +
+              gunVerisi.arizaliEkipmanList.length;
+          }
+        }
+      }
+
+      auditEkle(
+        db,
+        req,
+        'Arızalı/Eksik ekipman kaydı silindi',
+        req.params.id +
+          (kaynakTemizlendi
+            ? ' (kaynak günün verisinden de temizlendi)'
+            : '')
+      );
+
+      await writeDB(db, req.currentBolumId);
+
+      res.json({
+        ok: true,
+        kaynakTemizlendi
+      });
+    } catch (err) {
+      console.error('EKIPMAN ARIZA SILME HATASI:', err);
+
+      res.status(500).json({
+        error: 'Arıza kaydı silinemedi.'
       });
     }
   }

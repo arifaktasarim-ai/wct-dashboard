@@ -13,6 +13,54 @@ const UNVAN_LIST = [
   'Kalite Kontrol Teknisyeni'
 ];
 
+// Kalibrasyonlar: Ayarlar > Ekipman Ekle / Cikar ile tanimlanan her ekipman
+// icin bir alan uretilir (anahtar: 'e_' + ekipman id). Hic ekipman tanimlanmamissa
+// (veya eski kayitlari gostermek icin) onceki sabit liste kullanilir; eski gun
+// kayitlari boylece kaybolmaz.
+const KAL_ESKI_ALANLAR = [
+  { key: 'terazi1', label: 'Terazi 1' },
+  { key: 'terazi2', label: 'Terazi 2' },
+  { key: 'terazi3', label: 'Terazi 3' },
+  { key: 'karlFischer', label: 'Karl Fischer' },
+  { key: 'phMetre', label: 'pH Metre' },
+  { key: 'ftir', label: 'FT-IR' },
+  { key: 'turbidimetre', label: 'Türbidimetre' }
+];
+
+function kalibrasyonAlanlari() {
+  const liste = (typeof state !== 'undefined' && state.ekipmanlar) || [];
+  if (liste.length === 0) {
+    return KAL_ESKI_ALANLAR.map(f => ({ key: f.key, label: f.label, type: 'triState' }));
+  }
+  return liste.map(e => ({ key: 'e_' + e.id, label: `${e.ad} (${e.numara})`, type: 'triState' }));
+}
+
+// Gun duzenleme penceresi icin yapilandirma. Kalibrasyonda, ekipmanlar
+// tanimliyken o gunde eski (sabit liste) anahtarlarla girilmis bir deger varsa
+// o alan da "(eski kayıt)" olarak gosterilir; boylece kayit sessizce gizlenmez.
+function getCfgForDay(category, dayData) {
+  const cfg = CONFIG[category];
+  if (category !== 'kalibrasyon') return cfg;
+  const fields = kalibrasyonAlanlari().slice();
+  if (((state.ekipmanlar || []).length) > 0) {
+    KAL_ESKI_ALANLAR.forEach(f => {
+      if (dayData && dayData[f.key]) {
+        fields.push({ key: f.key, label: `${f.label} (eski kayıt)`, type: 'triState' });
+      }
+    });
+  }
+  return { ...cfg, fields };
+}
+
+// Verimlilik gunu icin toplam arizali/eksik ekipman adedi: ekipman secilerek
+// girilenler + (varsa) ekipman belirtilmeden girilmis eski adet.
+function arizaliEkipmanAdedi(day) {
+  if (day && Array.isArray(day.arizaliEkipmanList)) {
+    return len(day.arizaliEkipmanList) + (Number(day.arizaliEkipmanEski) || 0);
+  }
+  return Number(day && day.arizaliEkipman) || 0;
+}
+
 const CONFIG = {
   guvenlik: {
     label: 'Güvenlik (G)',
@@ -72,29 +120,26 @@ const CONFIG = {
     fields: [
       { key: 'fazlaMesai', label: 'Fazla Mesai', type: 'personHours' },
       { key: 'izinliPersonel', label: 'Eksik/İzinli Personel (teslimatı etkileyen)', type: 'personList' },
-      { key: 'arizaliEkipman', label: 'Arızalı/Eksik Ekipman (adet)', type: 'number' }
+      { key: 'arizaliEkipmanList', label: 'Arızalı/Eksik Ekipman', type: 'ekipmanAriza' }
     ],
     status(day) {
       if (!day || !day.reviewed) return 'neutral';
-      const kotu = len(day.fazlaMesai) > 0 || len(day.izinliPersonel) > 0 || (Number(day.arizaliEkipman) || 0) > 0;
+      const kotu = len(day.fazlaMesai) > 0 || len(day.izinliPersonel) > 0 || arizaliEkipmanAdedi(day) > 0;
       return kotu ? 'red' : 'green';
     }
   },
   kalibrasyon: {
     label: 'Kalibrasyonlar',
     hedef: 'Hedef: Planlanan tüm kalibrasyonların zamanında yapılması',
-    fields: [
-      { key: 'terazi1', label: 'Terazi 1', type: 'triState' },
-      { key: 'terazi2', label: 'Terazi 2', type: 'triState' },
-      { key: 'terazi3', label: 'Terazi 3', type: 'triState' },
-      { key: 'karlFischer', label: 'Karl Fischer', type: 'triState' },
-      { key: 'phMetre', label: 'pH Metre', type: 'triState' },
-      { key: 'ftir', label: 'FT-IR', type: 'triState' },
-      { key: 'turbidimetre', label: 'Türbidimetre', type: 'triState' }
-    ],
+    get fields() { return kalibrasyonAlanlari(); },
     status(day) {
       if (!day || !day.reviewed) return 'neutral';
-      const kotu = this.fields.some(f => day[f.key] === 'yapilmadi');
+      // Hem ekipman bazli ('e_...') hem eski sabit anahtarlar kontrol edilir;
+      // silinmis bir ekipmanin gecmis "yapılmadı" kaydi da renkte korunur.
+      const eskiAnahtarlar = KAL_ESKI_ALANLAR.map(f => f.key);
+      const kotu = Object.keys(day).some(k =>
+        (k.startsWith('e_') || eskiAnahtarlar.includes(k)) && day[k] === 'yapilmadi'
+      );
       return kotu ? 'red' : 'green';
     }
   }
@@ -193,6 +238,12 @@ let state = {
   personMonthlyBreakdown: {},
   allCategoryDataRaw: { guvenlik: {}, kalite: {}, verimlilik: {} },
   asdSapmaKayitlari: [],
+  // Ayarlar > Ekipman Ekle / Cikar ile tanimlanan ekipmanlar ve Verimlilik'te
+  // acilan arizali/eksik ekipman kayitlari (Ozet sayfasi).
+  ekipmanlar: [],
+  ekipmanArizaKayitlari: [],
+  ekipmanArizaFiltre: { durum: { acik: true, kapali: true }, baslangic: '', bitis: '', arama: '' },
+  editingEkipmanId: null,
   // Ozet sayfasindaki ASD/Sapma Kayitlari bolumunun filtre durumu.
   // tur/durum: ilgili secenek isaretliyse listede kalir (hepsi kapaliysa hicbir sey gosterilmez degil, hepsi gosterilir).
   asdSapmaFiltre: {
@@ -412,6 +463,11 @@ function applyRolBasedUI() {
   if (kullaniciTab) kullaniciTab.style.display = rol === 'admin' ? '' : 'none';
   const bolumTab = document.querySelector('.tab-btn[data-tab="bolumler"]');
   if (bolumTab) bolumTab.style.display = rol === 'admin' ? '' : 'none';
+
+  // Ayarlar > "Ekipman Ekle / Çıkar" bolumu sadece admin'e gorunur
+  // (sunucu da yazma islemlerini admin ile sinirlar).
+  const ekipmanGrup = document.getElementById('ekipmanGroup');
+  if (ekipmanGrup) ekipmanGrup.style.display = rol === 'admin' ? '' : 'none';
 }
 
 const ROL_ETIKET = { admin: 'Yönetici', kontrolcu: 'Kontrolcü', kullanici: 'Kullanıcı' };
@@ -433,7 +489,8 @@ async function initAppAfterLogin() {
     ['initSktForm', initSktForm],
     ['initPersonelForm', initPersonelForm],
     ['initAyarlarForm', initAyarlarForm],
-    ['initBolumOlusturForm', initBolumOlusturForm]
+    ['initBolumOlusturForm', initBolumOlusturForm],
+    ['initEkipmanForm', initEkipmanForm]
   ];
   steps.forEach(([name, fn]) => {
     try {
@@ -452,6 +509,7 @@ async function initAppAfterLogin() {
   try { await loadPersonelList(); } catch (err) { console.error('[BASLANGIC HATASI] loadPersonelList:', err); }
   try { initBildirimUI(); } catch (err) { console.error('[BASLANGIC HATASI] initBildirimUI:', err); }
   try { await loadAyarlar(); renderSiralamaListleri(); } catch (err) { console.error('[BASLANGIC HATASI] loadAyarlar:', err); }
+  try { await loadEkipmanlar(); } catch (err) { console.error('[BASLANGIC HATASI] loadEkipmanlar:', err); }
   try { await loadDuyurular(); } catch (err) { console.error('[BASLANGIC HATASI] loadDuyurular:', err); }
   try { await loadSktList(); } catch (err) { console.error('[BASLANGIC HATASI] loadSktList:', err); }
   try { showVersion(); } catch (err) { console.error('[BASLANGIC HATASI] showVersion:', err); }
@@ -542,6 +600,7 @@ function initTabs() {
         renderSiralamaListleri();
         const bildirimSelect = document.getElementById('bildirimPersonelSelect');
         if (bildirimSelect) fillPersonelSelect(bildirimSelect, localStorage.getItem(MY_PERSONEL_ID_KEY) || '');
+        if (isAdmin()) loadEkipmanlar().then(renderEkipmanTable);
       } else if (state.category === 'kullanicilar') {
         renderKullaniciYonetimiTable();
       } else if (state.category === 'bolumler') {
@@ -1147,7 +1206,7 @@ async function loadOneCategory(category) {
 
 async function loadAllCategoriesAndRender() {
   const categories = ['guvenlik', 'kalite', 'teslimat', 'verimlilik', 'kalibrasyon'];
-  await Promise.all(categories.map(c => loadOneCategory(c)));
+  await Promise.all([...categories.map(c => loadOneCategory(c)), loadEkipmanlar()]);
   renderGunlukTakip();
 }
 
@@ -1639,6 +1698,8 @@ function renderDayGrid(category, container, layout, totalDays) {
     <div class="legend-item"><div class="legend-dot status-red"></div>Sapma var</div>
     <div class="legend-item"><div class="legend-dot status-neutral"></div>Veri girilmedi / henüz kaydedilmedi</div>
   </div>`;
+  if (category === 'kalibrasyon') html += kalibrasyonEkipmanTablosuHtml();
+
   html += `</div>`;
 
   container.innerHTML = html;
@@ -1650,18 +1711,53 @@ function renderDayGrid(category, container, layout, totalDays) {
   });
 }
 
+// Kalibrasyonlar karti altinda: Ayarlar'dan tanimlanan tum ekipmanlar ve bu
+// aydaki "yapılmadı" gun sayilari.
+function kalibrasyonEkipmanTablosuHtml() {
+  const liste = state.ekipmanlar || [];
+  const veri = state.categoryData.kalibrasyon || {};
+
+  let html = `<div class="modal-field-group-label" style="margin-top:18px;">Kalibrasyon Takibindeki Ekipmanlar</div>`;
+
+  if (liste.length === 0) {
+    html += `<div class="category-hedef" style="margin-top:6px;">Henüz ekipman tanımlanmamış; şimdilik önceki sabit liste kullanılıyor. Admin, <strong>Ayarlar → Ekipman Ekle / Çıkar</strong> bölümünden ekipman ekledikçe kalibrasyon takibi bu ekipmanlar üzerinden yapılır ve burada listelenir.</div>`;
+    return html;
+  }
+
+  const satirlar = liste.map(e => {
+    const yapilmadi = Object.values(veri).filter(d => d && d.reviewed && d['e_' + e.id] === 'yapilmadi').length;
+    return `<tr>
+      <td>${escapeHtml(e.ad)}</td>
+      <td>${escapeHtml(e.numara)}</td>
+      <td>${escapeHtml(e.marka)}</td>
+      <td>${yapilmadi > 0 ? `<span class="badge badge-iptal">${yapilmadi} gün yapılmadı</span>` : `<span style="color:#9ca3af;">—</span>`}</td>
+    </tr>`;
+  }).join('');
+
+  html += `<div style="overflow-x:auto;"><table class="actions-table">
+    <thead><tr><th>Ekipman Adı</th><th>Ekipman No</th><th>Marka</th><th>${MONTHS_TR[state.month - 1]} Ayı</th></tr></thead>
+    <tbody>${satirlar}</tbody>
+  </table></div>`;
+  return html;
+}
+
 // ---------- Gun duzenleme penceresi (modal) ----------
 
 function openDayModal(category, day) {
-  const cfg = CONFIG[category];
   const existing = state.categoryData[category][day] || {};
+  const cfg = getCfgForDay(category, existing);
   // modal icinde calisilan gecici kopya (Kaydet'e basana kadar sunucuya gitmez)
   const draft = JSON.parse(JSON.stringify(existing));
   cfg.fields.forEach(f => {
-    if ((f.type === 'personList' || f.type === 'personHours') && !Array.isArray(draft[f.key])) {
+    if ((f.type === 'personList' || f.type === 'personHours' || f.type === 'ekipmanAriza') && !Array.isArray(draft[f.key])) {
       draft[f.key] = [];
     }
   });
+  // Verimlilik: ekipman secilmeden girilmis ESKI "adet" degeri varsa kaybolmasin;
+  // ayri bir alanda saklanir ve listedeki ekipman sayisina eklenir.
+  if (category === 'verimlilik' && draft.arizaliEkipmanEski === undefined && !Array.isArray(existing.arizaliEkipmanList)) {
+    draft.arizaliEkipmanEski = Number(existing.arizaliEkipman) || 0;
+  }
 
   // Bu gun daha once kaydedilip "reviewed" isaretlendiyse, admin disindaki
   // herkes icin salt-okunur acilir (sunucu zaten ayni kurali zorunlu kilar;
@@ -1704,6 +1800,9 @@ function openDayModal(category, day) {
       if (f.type === 'personList' || f.type === 'personHours') {
         return `${f.label}: <strong>${len(draft[f.key])}</strong>`;
       }
+      if (f.type === 'ekipmanAriza') {
+        return `${f.label}: <strong>${len(draft[f.key]) + (Number(draft.arizaliEkipmanEski) || 0)}</strong>`;
+      }
       if (f.type === 'triState') {
         return `${f.label}: <strong>${draft[f.key] === 'yapildi' ? 'Yapıldı' : draft[f.key] === 'yapilmadi' ? 'Yapılmadı' : '-'}</strong>`;
       }
@@ -1735,6 +1834,41 @@ function openDayModal(category, day) {
             <option value="yapilmadi" ${val === 'yapilmadi' ? 'selected' : ''}>Yapılmadı</option>
           </select>
         </label>`;
+      } else if (f.type === 'ekipmanAriza') {
+        const list = draft[f.key] || [];
+        const ekipmanlar = state.ekipmanlar || [];
+        const eskiAdet = Number(draft.arizaliEkipmanEski) || 0;
+        html += `<div class="modal-field-group">
+          <div class="modal-field-group-label">${f.label}</div>
+          ${eskiAdet > 0 ? `<label class="modal-field">
+            <span>Eski kayıt: ekipman belirtilmeden girilmiş adet</span>
+            <input type="number" min="0" data-key="arizaliEkipmanEski" data-type="number" value="${eskiAdet}" ${isLocked ? 'disabled' : ''}>
+          </label>` : ''}
+          <div class="person-chip-list" data-list-for="${f.key}">
+            ${list.map(item => `
+              <div class="person-chip">
+                <span>${escapeHtml(ekipmanEtiketi(item))} — Arıza Kodu: <strong>${escapeHtml(item.arizaKodu || '')}</strong>${item.personelId ? ` <em class="chip-note">· Sorumlu: ${escapeHtml(getPersonName(item.personelId))}</em>` : ''}${item.not ? `<em class="chip-note"> · ${escapeHtml(item.not)}</em>` : ''}${item.kayitId ? ` <em class="chip-note">· arıza kaydı açıldı</em>` : ''}</span>
+                ${isLocked ? '' : `<button type="button" class="chip-remove" data-remove-item="${f.key}:${item.id}">✕</button>`}
+              </div>
+            `).join('') || `<div class="person-chip-empty">Kayıt yok</div>`}
+          </div>
+          ${isLocked ? '' : (ekipmanlar.length === 0
+            ? `<div class="field-warning" style="display:block;">Henüz ekipman tanımlanmamış. Admin, Ayarlar → Ekipman Ekle / Çıkar bölümünden ekipman ekledikten sonra arızalı/eksik ekipman girilebilir.</div>`
+            : `
+          <div class="person-add-row">
+            <select data-ariza-ekipman="${f.key}">
+              <option value="">— Ekipman seçin —</option>
+              ${ekipmanlar.map(e => `<option value="${e.id}">${escapeHtml(e.ad)} (${escapeHtml(e.numara)}) — ${escapeHtml(e.marka)}</option>`).join('')}
+            </select>
+            <input type="text" placeholder="Arıza Kodu (zorunlu)" data-ariza-kodu="${f.key}" style="flex:1;min-width:130px;">
+            <select data-ariza-personel="${f.key}"></select>
+            <input type="text" placeholder="Not (opsiyonel)" data-ariza-not="${f.key}" style="flex:1;min-width:110px;">
+            <button type="button" class="btn-small" data-add-ariza-btn="${f.key}">+ Ekle</button>
+          </div>
+          <div class="field-warning" data-warning-for="${f.key}" style="display:none;">Lütfen bir ekipman seçin ve arıza kodunu girin.</div>
+          <div class="category-hedef" style="margin:6px 0 0 0;padding:0;border:none;">Kaydet'e bastığınızda her yeni kayıt için otomatik olarak bir arıza kaydı ve Aksiyonlar sayfasında bağlı bir aksiyon açılır.</div>
+          `)}
+        </div>`;
       } else if (f.type === 'personList' || f.type === 'personHours') {
         const list = draft[f.key] || [];
         const numaraGerekli = f.key === 'asd' || f.key === 'sapma';
@@ -1772,6 +1906,40 @@ function openDayModal(category, day) {
       if (f.type === 'personList' || f.type === 'personHours') {
         fillPersonelSelect(modalBody.querySelector(`[data-add-select="${f.key}"]`));
       }
+    });
+
+    // arizali/eksik ekipman: sorumlu personel secimi + ekle butonu (yine sadece taslak)
+    modalBody.querySelectorAll('[data-ariza-personel]').forEach(sel => {
+      fillPersonelSelect(sel);
+      if (sel.options[0]) sel.options[0].textContent = '— Sorumlu (opsiyonel) —';
+    });
+    modalBody.querySelectorAll('[data-add-ariza-btn]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.addArizaBtn;
+        const ekipmanId = modalBody.querySelector(`[data-ariza-ekipman="${key}"]`).value;
+        const arizaKodu = modalBody.querySelector(`[data-ariza-kodu="${key}"]`).value.trim();
+        const warningEl = modalBody.querySelector(`[data-warning-for="${key}"]`);
+        if (!ekipmanId || !arizaKodu) {
+          if (warningEl) warningEl.style.display = 'block';
+          return;
+        }
+        if (warningEl) warningEl.style.display = 'none';
+        const item = {
+          id: 'i' + Date.now() + Math.random().toString(36).slice(2, 6),
+          ekipmanId,
+          arizaKodu
+        };
+        const personelId = modalBody.querySelector(`[data-ariza-personel="${key}"]`).value;
+        if (personelId) item.personelId = personelId;
+        const notVal = modalBody.querySelector(`[data-ariza-not="${key}"]`).value.trim();
+        if (notVal) item.not = notVal;
+        if (!draft[key]) draft[key] = [];
+        draft[key].push(item);
+        renderFields();
+        updateComputed();
+        updateVerifyBox();
+        hasUnsavedChanges = true;
+      });
     });
 
     // ekle butonlari (sadece taslagi/draft'i degistirir, sunucuya "Kaydet"e basinca gider)
@@ -1877,12 +2045,16 @@ function openDayModal(category, day) {
     saveBtn.addEventListener('click', async () => {
       const patch = { reviewed: true };
       cfg.fields.forEach(f => {
-        if (f.type === 'personList' || f.type === 'personHours') {
+        if (f.type === 'personList' || f.type === 'personHours' || f.type === 'ekipmanAriza') {
           patch[f.key] = draft[f.key] || [];
         } else {
           patch[f.key] = (draft[f.key] === undefined || draft[f.key] === '') ? null : draft[f.key];
         }
       });
+      if (category === 'verimlilik') {
+        patch.arizaliEkipmanEski = Number(draft.arizaliEkipmanEski) || 0;
+        patch.arizaliEkipman = patch.arizaliEkipmanEski + len(patch.arizaliEkipmanList);
+      }
       saveBtn.textContent = 'Kaydediliyor…';
       saveBtn.disabled = true;
       try {
@@ -1910,7 +2082,7 @@ async function renderOzet() {
   const yearMonth = `${state.year}-${String(state.month).padStart(2, '0')}`;
   const categories = ['guvenlik', 'kalite', 'teslimat', 'verimlilik', 'kalibrasyon'];
 
-  const [dataResults, actionsRes, personelRes, notlarRes, duyurularRes, sktRes, allGuvenlik, allKalite, allVerimlilik, allKatilim, asdSapmaRes] = await Promise.all([
+  const [dataResults, actionsRes, personelRes, notlarRes, duyurularRes, sktRes, allGuvenlik, allKalite, allVerimlilik, allKatilim, asdSapmaRes, ekipmanArizaRes, ekipmanlarRes] = await Promise.all([
     Promise.all(categories.map(c => fetch(`/api/data/${c}/${yearMonth}`).then(r => r.json()))),
     fetch('/api/actions').then(r => r.json()),
     fetch('/api/personel').then(r => r.json()),
@@ -1921,7 +2093,9 @@ async function renderOzet() {
     fetch('/api/all/kalite').then(r => r.json()),
     fetch('/api/all/verimlilik').then(r => r.json()),
     fetch('/api/all-katilim').then(r => r.json()),
-    fetch('/api/asd-sapma').then(r => r.json())
+    fetch('/api/asd-sapma').then(r => r.json()),
+    fetch('/api/ekipman-ariza').then(r => r.json()),
+    fetch('/api/ekipmanlar').then(r => r.json())
   ]);
 
   state.personelList = personelRes;
@@ -1929,6 +2103,8 @@ async function renderOzet() {
   state.sktList = sktRes;
   state.actions = actionsRes;
   state.asdSapmaKayitlari = asdSapmaRes;
+  state.ekipmanArizaKayitlari = Array.isArray(ekipmanArizaRes) ? ekipmanArizaRes : [];
+  if (Array.isArray(ekipmanlarRes)) state.ekipmanlar = ekipmanlarRes;
   const monthData = {};
   categories.forEach((c, i) => { monthData[c] = dataResults[i]; });
 
@@ -2245,6 +2421,11 @@ async function renderOzet() {
         <summary>Notlar / Görevler <span class="ozet-count-badge">${notlarRes ? notlarRes.length : 0}</span></summary>
         <div class="ozet-details-body">${notlarHtml}</div>
       </details>`,
+    ekipmanAriza: `
+      <details class="ozet-details ozet-details-full" id="ekipmanArizaDetails" ${state.ekipmanArizaKayitlari.some(k => ekipmanArizaDurum(k) === 'acik') ? 'open' : ''}>
+        <summary>Arızalı/Eksik Ekipmanlar <span class="ozet-count-badge ${state.ekipmanArizaKayitlari.some(k => ekipmanArizaDurum(k) === 'acik') ? 'badge-warn' : ''}">${state.ekipmanArizaKayitlari.length}</span></summary>
+        <div class="ozet-details-body">${ekipmanArizaBlokHtml()}</div>
+      </details>`,
     asdSapma: `
       <details class="ozet-details ozet-details-full" id="asdSapmaKayitlariDetails">
         <summary>ASD / Sapma Kayıtları <span class="ozet-count-badge">${(state.asdSapmaKayitlari || []).length}</span></summary>
@@ -2273,7 +2454,7 @@ async function renderOzet() {
         <div class="ozet-details-body">${actionsHtml}</div>
       </details>`
   };
-  const ustSiralama = (state.ayarlar.ozetUstSiralama && state.ayarlar.ozetUstSiralama.length === 3) ? state.ayarlar.ozetUstSiralama : ['notlar', 'asdSapma', 'personel'];
+  const ustSiralama = (state.ayarlar.ozetUstSiralama && state.ayarlar.ozetUstSiralama.length === 4) ? state.ayarlar.ozetUstSiralama : ['notlar', 'ekipmanAriza', 'asdSapma', 'personel'];
   const kartSiralama = (state.ayarlar.ozetKartSiralama && state.ayarlar.ozetKartSiralama.length === 3) ? state.ayarlar.ozetKartSiralama : ['kaza', 'skt', 'aksiyonlar'];
   const ustBloklarHtml = ustSiralama.map(k => ustBloklar[k] || '').join('');
   const kartBolumleriHtml = kartSiralama.map(k => kartBolumleri[k] || '').join('');
@@ -2330,6 +2511,7 @@ async function renderOzet() {
   });
 
   initAsdSapmaBlok();
+  initEkipmanArizaBlok();
 }
 
 // ================== AKSIYONLAR ==================
@@ -3183,6 +3365,7 @@ const SIRALAMA_ETIKETLERI = {
   kalibrasyon: 'Kalibrasyonlar',
   notlar: 'Notlar / Görevler',
   asdSapma: 'ASD / Sapma Kayıtları',
+  ekipmanAriza: 'Arızalı/Eksik Ekipmanlar',
   personel: 'Personel Bazlı Özet',
   kaza: 'Kaza / Ramak Kala Olay Detayları',
   skt: 'SKT / Süre Takibi',
@@ -3260,6 +3443,417 @@ function applyGunlukSiralama() {
     const el = document.getElementById('subgrid-' + cat);
     if (el) el.style.order = idx;
   });
+}
+
+// ================== AYARLAR > EKIPMAN EKLE / CIKAR (sadece admin) ==================
+// Ekipmanlar Gunluk Takip > Kalibrasyonlar'da listelenir ve Gunluk Takip >
+// Verimlilik'te "Arızalı/Eksik Ekipman" secimi icin kullanilir.
+
+async function loadEkipmanlar() {
+  try {
+    const res = await fetch('/api/ekipmanlar');
+    if (!res.ok) return state.ekipmanlar;
+    const data = await res.json();
+    state.ekipmanlar = Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error('[loadEkipmanlar] Ekipmanlar alınamadı:', err);
+  }
+  return state.ekipmanlar;
+}
+
+// Bir ariza ogesi/kaydi icin ekipman etiketi. Ekipman sonradan silinmis veya
+// degistirilmis olsa bile kayit kendi icindeki kopyayi (ekipmanAd/Numara) tasir.
+function ekipmanEtiketi(item) {
+  const canli = (state.ekipmanlar || []).find(e => e.id === item.ekipmanId);
+  const ad = canli ? canli.ad : (item.ekipmanAd || '(silinmiş ekipman)');
+  const no = canli ? canli.numara : (item.ekipmanNumara || '');
+  return no ? `${ad} (${no})` : ad;
+}
+
+function renderEkipmanTable() {
+  const tbody = document.getElementById('ekipmanTableBody');
+  if (!tbody) return;
+  const liste = state.ekipmanlar || [];
+  if (liste.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#6b7280;">Henüz ekipman eklenmedi.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = liste.map(e => `
+    <tr>
+      <td>${escapeHtml(e.ad)}</td>
+      <td>${escapeHtml(e.numara)}</td>
+      <td>${escapeHtml(e.marka)}</td>
+      <td>
+        <button type="button" class="icon-btn" data-ekipman-edit="${e.id}">Düzenle</button>
+        <button type="button" class="icon-btn danger" data-ekipman-delete="${e.id}">Çıkar</button>
+      </td>
+    </tr>
+  `).join('');
+  tbody.querySelectorAll('[data-ekipman-edit]').forEach(btn => {
+    btn.addEventListener('click', () => startEditEkipman(btn.dataset.ekipmanEdit));
+  });
+  tbody.querySelectorAll('[data-ekipman-delete]').forEach(btn => {
+    btn.addEventListener('click', () => deleteEkipman(btn.dataset.ekipmanDelete));
+  });
+}
+
+function resetEkipmanForm() {
+  const form = document.getElementById('ekipmanForm');
+  if (form) form.reset();
+  state.editingEkipmanId = null;
+  const submitBtn = document.getElementById('ekipmanSubmitBtn');
+  if (submitBtn) submitBtn.textContent = 'Ekipman Ekle';
+  const iptalBtn = document.getElementById('ekipmanIptalBtn');
+  if (iptalBtn) iptalBtn.style.display = 'none';
+}
+
+function startEditEkipman(id) {
+  const e = (state.ekipmanlar || []).find(x => x.id === id);
+  if (!e) return;
+  document.getElementById('ekpAd').value = e.ad || '';
+  document.getElementById('ekpNumara').value = e.numara || '';
+  document.getElementById('ekpMarka').value = e.marka || '';
+  state.editingEkipmanId = id;
+  document.getElementById('ekipmanSubmitBtn').textContent = 'Ekipmanı Güncelle';
+  document.getElementById('ekipmanIptalBtn').style.display = '';
+  document.getElementById('ekipmanForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function deleteEkipman(id) {
+  const e = (state.ekipmanlar || []).find(x => x.id === id);
+  if (!e) return;
+  if (!confirm(`"${e.ad} (${e.numara})" ekipmanını çıkarmak istediğinize emin misiniz?\n\nGeçmiş arıza kayıtları ve geçmiş kalibrasyon günleri silinmez; ancak bu ekipman artık Kalibrasyonlar ve Verimlilik ekranlarında listelenmez.`)) return;
+  const res = await fetch(`/api/ekipmanlar/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert('⚠ ' + (data.error || 'Ekipman çıkarılamadı.'));
+    return;
+  }
+  if (state.editingEkipmanId === id) resetEkipmanForm();
+  await loadEkipmanlar();
+  renderEkipmanTable();
+  showToast('Ekipman çıkarıldı.');
+}
+
+function initEkipmanForm() {
+  const form = document.getElementById('ekipmanForm');
+  if (!form) { console.error('[initEkipmanForm] #ekipmanForm bulunamadi'); return; }
+
+  const iptalBtn = document.getElementById('ekipmanIptalBtn');
+  if (iptalBtn) iptalBtn.addEventListener('click', resetEkipmanForm);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      ad: document.getElementById('ekpAd').value.trim(),
+      numara: document.getElementById('ekpNumara').value.trim(),
+      marka: document.getElementById('ekpMarka').value.trim()
+    };
+    if (!payload.ad || !payload.numara || !payload.marka) {
+      alert('Ekipman adı, ekipman numarası ve markası zorunludur.');
+      return;
+    }
+    const duzenleme = !!state.editingEkipmanId;
+    const submitBtn = document.getElementById('ekipmanSubmitBtn');
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(duzenleme ? `/api/ekipmanlar/${state.editingEkipmanId}` : '/api/ekipmanlar', {
+        method: duzenleme ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Ekipman kaydedilemedi.');
+      resetEkipmanForm();
+      await loadEkipmanlar();
+      renderEkipmanTable();
+      showToast(duzenleme ? 'Ekipman güncellendi.' : 'Ekipman eklendi.');
+    } catch (err) {
+      alert('⚠ ' + err.message);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  renderEkipmanTable();
+}
+
+// ================== ARIZALI / EKSIK EKIPMANLAR (Ozet sayfasi) ==================
+// Kayitlar Gunluk Takip > Verimlilik'te "Arızalı/Eksik Ekipman" girildiginde
+// sunucu tarafinda otomatik olusur (bkz. server.js POST /api/data/...) ve
+// Aksiyonlar'da bagli bir aksiyon acilir. Acik/Kapali durumu, ASD/Sapma ile
+// ayni mantikla bagli aksiyonun durumundan turetilir.
+
+function ekipmanArizaDurum(kayit) {
+  const baglı = (state.actions || []).find(a => a.id === kayit.aksiyonId);
+  if (!baglı) return 'acik';
+  return baglı.durum === 'Devam ediyor' ? 'acik' : 'kapali';
+}
+
+function getFilteredEkipmanArizaKayitlari() {
+  const f = state.ekipmanArizaFiltre;
+  return (state.ekipmanArizaKayitlari || []).filter(k => {
+    if (!f.durum[ekipmanArizaDurum(k)]) return false;
+    if (f.baslangic && (!k.tarih || k.tarih < f.baslangic)) return false;
+    if (f.bitis && (!k.tarih || k.tarih > f.bitis)) return false;
+    if (f.arama && f.arama.trim()) {
+      const q = f.arama.trim().toLowerCase();
+      const hay = `${ekipmanEtiketi(k)} ${k.ekipmanMarka || ''} ${k.arizaKodu || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).slice().sort((a, b) => (b.tarih || '').localeCompare(a.tarih || ''));
+}
+
+function ekipmanArizaRowsHtml(kayitlar) {
+  if (kayitlar.length === 0) {
+    return `<tr><td colspan="10" style="text-align:center;color:#6b7280;">Filtreye uyan bir arızalı/eksik ekipman kaydı yok.</td></tr>`;
+  }
+  return kayitlar.map(k => {
+    const baglıAksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
+    const canli = (state.ekipmanlar || []).find(e => e.id === k.ekipmanId);
+    return `
+    <tr>
+      <td>${escapeHtml(canli ? canli.ad : (k.ekipmanAd || '(silinmiş ekipman)'))}</td>
+      <td>${escapeHtml(canli ? canli.numara : (k.ekipmanNumara || ''))}</td>
+      <td>${escapeHtml(canli ? canli.marka : (k.ekipmanMarka || ''))}</td>
+      <td><button type="button" class="asd-sapma-numara-link" data-ekipman-ariza-detay="${k.id}">${escapeHtml(k.arizaKodu || '(kodsuz)')}</button></td>
+      <td>${k.tarih ? formatDateSimpleTR(k.tarih) : ''}</td>
+      <td>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</td>
+      <td>${k.aciklama ? escapeHtml(k.aciklama) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
+      <td>${k.kapatmaNedeni ? escapeHtml(k.kapatmaNedeni) : '<em style="color:#9ca3af;">-</em>'}</td>
+      <td>${baglıAksiyon ? `<span class="badge ${badgeClass(baglıAksiyon.durum)}">${escapeHtml(baglıAksiyon.durum)}</span>` : '<span style="color:#9ca3af;">-</span>'}</td>
+      <td><button type="button" class="icon-btn danger" data-del-ekipman-ariza="${k.id}">Sil</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function ekipmanArizaBlokHtml() {
+  const f = state.ekipmanArizaFiltre;
+  return `
+    <div class="category-hedef" style="margin-top:0;">
+      Günlük Takip → Verimlilik bölümünde bir arızalı/eksik ekipman girilip
+      arıza kodu verildiğinde buraya otomatik olarak bir kayıt düşer ve
+      Aksiyonlar listesine bağlı bir aksiyon açılır. Arıza koduna tıklayarak
+      detayları görebilir, durumu (açık/kapalı) ve kapatma nedenini buradan
+      yönetebilirsiniz.
+    </div>
+    <details class="ozet-details" style="margin-bottom:14px;">
+      <summary>Filtrele</summary>
+      <div class="asd-sapma-filtre">
+        <div class="asd-sapma-filtre-row">
+          <label class="asd-sapma-check"><input type="checkbox" id="ekpArizaFiltreAcik" ${f.durum.acik ? 'checked' : ''}> Açık</label>
+          <label class="asd-sapma-check"><input type="checkbox" id="ekpArizaFiltreKapali" ${f.durum.kapali ? 'checked' : ''}> Kapalı</label>
+        </div>
+        <div class="form-row">
+          <label>Tarih Aralığı (Başlangıç)
+            <input type="date" id="ekpArizaFiltreBaslangic" value="${f.baslangic || ''}">
+          </label>
+          <label>Tarih Aralığı (Bitiş)
+            <input type="date" id="ekpArizaFiltreBitis" value="${f.bitis || ''}">
+          </label>
+          <label>Ekipman / Arıza Kodu Ara
+            <input type="text" id="ekpArizaFiltreArama" placeholder="örn. Terazi veya ARZ-01" value="${escapeHtml(f.arama || '')}">
+          </label>
+        </div>
+      </div>
+    </details>
+    <div style="overflow-x:auto;">
+    <table class="actions-table">
+      <thead>
+        <tr>
+          <th>Ekipman</th>
+          <th>Ekipman No</th>
+          <th>Marka</th>
+          <th>Arıza Kodu</th>
+          <th>Tarih</th>
+          <th>Sorumlu</th>
+          <th>Açıklama</th>
+          <th>Kapatma Nedeni</th>
+          <th>Bağlı Aksiyon Durumu</th>
+          <th>İşlem</th>
+        </tr>
+      </thead>
+      <tbody id="ekipmanArizaTableBody">${ekipmanArizaRowsHtml(getFilteredEkipmanArizaKayitlari())}</tbody>
+    </table>
+    </div>
+  `;
+}
+
+function renderEkipmanArizaTableBodyOnly() {
+  const tbody = document.getElementById('ekipmanArizaTableBody');
+  if (!tbody) return;
+  const filtreli = getFilteredEkipmanArizaKayitlari();
+  tbody.innerHTML = ekipmanArizaRowsHtml(filtreli);
+  const badge = document.querySelector('#ekipmanArizaDetails summary .ozet-count-badge');
+  if (badge) badge.textContent = filtreli.length;
+}
+
+function initEkipmanArizaBlok() {
+  const f = state.ekipmanArizaFiltre;
+  const acikChk = document.getElementById('ekpArizaFiltreAcik');
+  if (!acikChk) return; // blok DOM'da yoksa hicbir sey yapma
+  const kapaliChk = document.getElementById('ekpArizaFiltreKapali');
+  const baslangicInput = document.getElementById('ekpArizaFiltreBaslangic');
+  const bitisInput = document.getElementById('ekpArizaFiltreBitis');
+  const aramaInput = document.getElementById('ekpArizaFiltreArama');
+  const tbody = document.getElementById('ekipmanArizaTableBody');
+
+  acikChk.addEventListener('change', () => { f.durum.acik = acikChk.checked; renderEkipmanArizaTableBodyOnly(); });
+  kapaliChk.addEventListener('change', () => { f.durum.kapali = kapaliChk.checked; renderEkipmanArizaTableBodyOnly(); });
+  baslangicInput.addEventListener('change', () => { f.baslangic = baslangicInput.value; renderEkipmanArizaTableBodyOnly(); });
+  bitisInput.addEventListener('change', () => { f.bitis = bitisInput.value; renderEkipmanArizaTableBodyOnly(); });
+  aramaInput.addEventListener('input', () => { f.arama = aramaInput.value; renderEkipmanArizaTableBodyOnly(); });
+
+  if (tbody) {
+    tbody.addEventListener('click', (e) => {
+      const delBtn = e.target.closest('[data-del-ekipman-ariza]');
+      if (delBtn) { deleteEkipmanArizaKayit(delBtn.dataset.delEkipmanAriza); return; }
+      const detayBtn = e.target.closest('[data-ekipman-ariza-detay]');
+      if (detayBtn) { openEkipmanArizaDetayModal(detayBtn.dataset.ekipmanArizaDetay); }
+    });
+  }
+}
+
+function openEkipmanArizaDetayModal(id) {
+  const k = (state.ekipmanArizaKayitlari || []).find(x => x.id === id);
+  if (!k) return;
+  const aksiyon = (state.actions || []).find(a => a.id === k.aksiyonId);
+  const canli = (state.ekipmanlar || []).find(e => e.id === k.ekipmanId);
+  const rol = normalizeRolClient(currentUser ? currentUser.rol : 'kullanici');
+  const canEdit = rol === 'kontrolcu' || rol === 'admin';
+  const kapaliMi = aksiyon && aksiyon.durum !== 'Devam ediyor';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Arıza Kodu: ${escapeHtml(k.arizaKodu || '(kodsuz)')}</h3>
+        <button class="modal-close" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="person-total-row">Ekipman: <strong>${escapeHtml(canli ? canli.ad : (k.ekipmanAd || '(silinmiş ekipman)'))}</strong></div>
+        <div class="person-total-row">Ekipman No: <strong>${escapeHtml(canli ? canli.numara : (k.ekipmanNumara || '-'))}</strong></div>
+        <div class="person-total-row">Marka: <strong>${escapeHtml(canli ? canli.marka : (k.ekipmanMarka || '-'))}</strong></div>
+        <div class="person-total-row">Tarih: <strong>${k.tarih ? formatDateSimpleTR(k.tarih) : '-'}</strong></div>
+        <div class="person-total-row">Sorumlu: <strong>${k.personelId ? escapeHtml(getPersonName(k.personelId)) : '-'}</strong></div>
+
+        <label class="modal-field" style="margin-top:12px;">
+          <span>Açıklama</span>
+          <textarea id="ekpArizaDetayAciklama" rows="3" ${canEdit ? '' : 'disabled'}>${escapeHtml(k.aciklama || '')}</textarea>
+        </label>
+        <div id="ekpArizaDetayKaydetDurum" style="font-size:12.5px;min-height:16px;"></div>
+        ${canEdit ? `<button type="button" class="btn-small" id="ekpArizaDetayKaydetBtn">Açıklamayı Kaydet</button>` : ''}
+
+        <div class="modal-field-group-label" style="margin-top:18px;">Durum Takibi (Bağlı Aksiyon)</div>
+        ${aksiyon ? `
+          <div class="person-total-row">Aksiyon: <strong>${escapeHtml(aksiyon.baslik || '')}</strong></div>
+          <div class="person-total-row">Güncel Durum: <span class="badge ${badgeClass(aksiyon.durum)}">${escapeHtml(aksiyon.durum || '')}</span> <strong>(${kapaliMi ? 'Kapalı' : 'Açık'})</strong></div>
+          ${canEdit ? `
+          <label class="modal-field" style="margin-top:8px;">
+            <span>Durum</span>
+            <select id="ekpArizaDetayDurum">
+              <option value="Devam ediyor" ${aksiyon.durum === 'Devam ediyor' ? 'selected' : ''}>Devam ediyor (Açık)</option>
+              <option value="Tamamlandı" ${aksiyon.durum === 'Tamamlandı' ? 'selected' : ''}>Tamamlandı (Kapalı)</option>
+              <option value="İptal" ${aksiyon.durum === 'İptal' ? 'selected' : ''}>İptal (Kapalı)</option>
+            </select>
+          </label>
+          <label class="modal-field" id="ekpArizaDetayKapatmaRow" style="display:${kapaliMi ? 'flex' : 'none'};">
+            <span>Kapatma Nedeni</span>
+            <textarea id="ekpArizaDetayKapatma" rows="2" placeholder="Arıza nasıl giderildi / neden kapatıldı?">${escapeHtml(aksiyon.kapatmaNedeni || '')}</textarea>
+          </label>
+          <div id="ekpArizaDetayDurumMesaj" style="font-size:12.5px;min-height:16px;"></div>
+          <button type="button" class="btn-small" id="ekpArizaDetayDurumBtn">Durumu Kaydet</button>
+          ` : `<div class="person-total-row">Kapatma Nedeni: <strong>${aksiyon.kapatmaNedeni ? escapeHtml(aksiyon.kapatmaNedeni) : '-'}</strong></div>`}
+        ` : `<p style="color:#9ca3af;font-size:13px;">Bağlı bir aksiyon bulunamadı (silinmiş olabilir); kayıt açık sayılır.</p>`}
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <button type="button" class="btn-primary" id="ekpArizaDetayKapatBtn">Kapat</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('.modal-close').addEventListener('click', close);
+  overlay.querySelector('#ekpArizaDetayKapatBtn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const aciklamaBtn = overlay.querySelector('#ekpArizaDetayKaydetBtn');
+  if (aciklamaBtn) {
+    aciklamaBtn.addEventListener('click', async () => {
+      const aciklama = overlay.querySelector('#ekpArizaDetayAciklama').value.trim();
+      const mesajEl = overlay.querySelector('#ekpArizaDetayKaydetDurum');
+      aciklamaBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/ekipman-ariza/${k.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ aciklama })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Kaydedilemedi.');
+        k.aciklama = aciklama;
+        mesajEl.textContent = '✓ Kaydedildi.';
+        mesajEl.style.color = '#1e7d2e';
+        renderEkipmanArizaTableBodyOnly();
+      } catch (err) {
+        mesajEl.textContent = '⚠ ' + err.message;
+        mesajEl.style.color = '#b91c1c';
+      } finally {
+        aciklamaBtn.disabled = false;
+      }
+    });
+  }
+
+  const durumSelect = overlay.querySelector('#ekpArizaDetayDurum');
+  const durumBtn = overlay.querySelector('#ekpArizaDetayDurumBtn');
+  if (durumSelect && durumBtn && aksiyon) {
+    durumSelect.addEventListener('change', () => {
+      overlay.querySelector('#ekpArizaDetayKapatmaRow').style.display =
+        durumSelect.value === 'Devam ediyor' ? 'none' : 'flex';
+    });
+    durumBtn.addEventListener('click', async () => {
+      const yeniDurum = durumSelect.value;
+      const kapatmaNedeni = yeniDurum === 'Devam ediyor' ? '' : overlay.querySelector('#ekpArizaDetayKapatma').value.trim();
+      const mesajEl = overlay.querySelector('#ekpArizaDetayDurumMesaj');
+      durumBtn.disabled = true;
+      try {
+        // Mevcut Aksiyonlar rotasi kullanilir: durum ve kapatma nedeni aksiyonda
+        // tutulur, boylece Aksiyonlar sayfasi ve bu liste her zaman uyumlu kalir.
+        const res = await fetch(`/api/actions/${aksiyon.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ durum: yeniDurum, kapatmaNedeni })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Durum kaydedilemedi.');
+        aksiyon.durum = data.durum || yeniDurum;
+        aksiyon.kapatmaNedeni = data.kapatmaNedeni !== undefined ? data.kapatmaNedeni : kapatmaNedeni;
+        k.kapatmaNedeni = aksiyon.kapatmaNedeni || '';
+        renderEkipmanArizaTableBodyOnly();
+        close();
+        showToast(yeniDurum === 'Devam ediyor' ? 'Arıza açık olarak işaretlendi.' : 'Arıza kapatıldı.');
+      } catch (err) {
+        mesajEl.textContent = '⚠ ' + err.message;
+        mesajEl.style.color = '#b91c1c';
+        durumBtn.disabled = false;
+      }
+    });
+  }
+}
+
+async function deleteEkipmanArizaKayit(id) {
+  if (!confirm('Bu arızalı/eksik ekipman kaydını silmek istediğinize emin misiniz? (Bağlı aksiyon, Aksiyonlar listesinde kalmaya devam eder; onu silmek isterseniz ayrıca oradan silmeniz gerekir.)')) return;
+  const res = await fetch(`/api/ekipman-ariza/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    alert('Kayıt silinemedi. Bu işlem için admin yetkisi gerekiyor.');
+    return;
+  }
+  // Kaynak gundeki oge de silindigi icin (Verimlilik rengini etkiler) tum Ozet yeniden yuklenir.
+  await renderOzet();
 }
 
 // ================== TOPLANTI NOTLARI ==================
