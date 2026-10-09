@@ -2560,6 +2560,7 @@ async function renderOzet() {
   initAsdSapmaBlok();
   initEkipmanArizaBlok();
   duyuruPdfOnizlemeleriniDoldur(container);
+  ozetTamEkranButonlariEkle(container);
 }
 
 // ================== AKSIYONLAR ==================
@@ -4336,6 +4337,328 @@ function openImageLightbox(src, title) {
   const close = () => overlay.remove();
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   overlay.querySelector('#lightboxClose').addEventListener('click', close);
+}
+
+// ================== OZET: TAM EKRAN + DUYURU SLAYT GOSTERISI ==================
+// Ekranda surekli acik kalan panolar icin: Ozet'teki her blok "Tam Ekran"
+// butonuyla tarayicinin tam ekranina alinabilir. Duyurular kutusundaki buton ise
+// yuklenen gorsel/PDF'leri otomatik ilerleyen bir slayt gosterisi olarak acar.
+
+function ozetTamEkranButonlariEkle(container) {
+  const hedefler = [];
+  const anaKart = container.querySelector('.ozet-main-card');
+  if (anaKart) hedefler.push(anaKart);
+  container.querySelectorAll(':scope > details.ozet-details, :scope > .ozet-card-grid > details.ozet-details')
+    .forEach(el => hedefler.push(el));
+
+  hedefler.forEach(el => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tam-ekran-btn';
+    btn.title = 'Bu bölümü tam ekranda göster';
+    btn.textContent = '⛶ Tam Ekran';
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); tamEkranAc(el); });
+    const summary = el.tagName === 'DETAILS' ? el.querySelector(':scope > summary') : null;
+    if (summary) summary.appendChild(btn); else el.appendChild(btn);
+  });
+
+  const duyuruKart = container.querySelector('.ozet-duyuru-card');
+  if (duyuruKart) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tam-ekran-btn';
+    btn.title = 'Duyuruları tam ekranda otomatik slayt gösterisi olarak oynat';
+    btn.textContent = '▶ Tam Ekran Slayt';
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); duyuruSlaytAc(); });
+    duyuruKart.appendChild(btn);
+  }
+}
+
+function tamEkranAc(el) {
+  if (el.tagName === 'DETAILS') el.open = true;
+  el.classList.add('tam-ekran-hedef');
+
+  const kapat = document.createElement('button');
+  kapat.type = 'button';
+  kapat.className = 'tam-ekran-kapat';
+  kapat.textContent = '✕ Tam ekrandan çık';
+  el.prepend(kapat);
+
+  let bitti = false;
+  const temizle = () => {
+    if (bitti) return;
+    bitti = true;
+    el.classList.remove('tam-ekran-hedef', 'tam-ekran-yedek');
+    kapat.remove();
+    document.removeEventListener('fullscreenchange', degisti);
+    document.removeEventListener('keydown', tus);
+  };
+  const degisti = () => { if (document.fullscreenElement !== el) temizle(); };
+  const tus = (e) => { if (e.key === 'Escape') cik(); };
+  const cik = () => {
+    if (document.fullscreenElement === el) document.exitFullscreen().catch(() => temizle());
+    else temizle();
+  };
+  kapat.addEventListener('click', cik);
+
+  const yedegeGec = () => {
+    // Tarayici tam ekrani desteklemiyorsa sayfayi kaplayan pencere gibi goster
+    el.classList.add('tam-ekran-yedek');
+    document.addEventListener('keydown', tus);
+  };
+
+  if (el.requestFullscreen) {
+    el.requestFullscreen().then(() => {
+      if (document.fullscreenElement === el) document.addEventListener('fullscreenchange', degisti);
+      else yedegeGec();
+    }).catch(yedegeGec);
+  } else {
+    yedegeGec();
+  }
+}
+
+const SLAYT_SURE_KEY = 'wct_dashboard_slayt_sure';
+const SLAYT_MAX_PDF_SAYFA = 20;
+
+function duyuruSlaytImzasi() {
+  const d = state.duyurular || {};
+  return DUYURU_TANIMLARI.map(t => `${t.key}:${(d[t.key] || '').length}`).join('|');
+}
+
+async function duyuruSlaytAc() {
+  try { await loadDuyurular(); } catch (e) { /* eldeki veriyle devam */ }
+
+  if (!DUYURU_TANIMLARI.some(t => (state.duyurular || {})[t.key])) {
+    alert('Henüz yüklenmiş bir duyuru yok. "Aksiyonlar" sekmesinden görsel veya PDF yükleyebilirsiniz.');
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'slayt-overlay';
+  overlay.innerHTML = `
+    <div class="slayt-ust">
+      <div class="slayt-baslik" id="slaytBaslik"></div>
+      <div class="slayt-sayac" id="slaytSayac"></div>
+      <select class="slayt-sure" id="slaytSure" title="Slayt süresi">
+        ${[5, 10, 15, 20, 30, 60].map(s => `<option value="${s}">${s} sn</option>`).join('')}
+      </select>
+      <button type="button" class="slayt-btn" id="slaytDurdur" title="Duraklat / Devam (Boşluk)">⏸</button>
+      <button type="button" class="slayt-btn" id="slaytKapat" title="Kapat (Esc)">✕ Kapat</button>
+    </div>
+    <button type="button" class="slayt-nav slayt-onceki" id="slaytOnceki" title="Önceki (←)">‹</button>
+    <div class="slayt-sahne" id="slaytSahne"></div>
+    <button type="button" class="slayt-nav slayt-sonraki" id="slaytSonraki" title="Sonraki (→)">›</button>
+    <div class="slayt-ilerleme"><div class="slayt-ilerleme-cubuk" id="slaytCubuk"></div></div>
+  `;
+  document.body.appendChild(overlay);
+
+  const $ = id => overlay.querySelector('#' + id);
+  const sahne = $('slaytSahne'), cubuk = $('slaytCubuk'), sureSel = $('slaytSure'), durdurBtn = $('slaytDurdur');
+
+  let slides = [];
+  let idx = 0;
+  let durdu = false;
+  let zamanlayici = null;
+  let jeton = 0;
+  let kapandi = false;
+  let imza = '';
+  let gizleZamani = null;
+  let wakeLock = null;
+  const pdfDocs = {};
+
+  let sure = Number(localStorage.getItem(SLAYT_SURE_KEY)) || 10;
+  if (![5, 10, 15, 20, 30, 60].includes(sure)) sure = 10;
+  sureSel.value = String(sure);
+
+  function pdfBelgesi(key) {
+    const src = state.duyurular[key];
+    const ck = key + ':' + src.length;
+    if (!pdfDocs[ck]) {
+      pdfDocs[ck] = pdfJsYukle().then(async lib =>
+        lib.getDocument({ data: new Uint8Array(await dataUrlToBlob(src).arrayBuffer()) }).promise);
+    }
+    return pdfDocs[ck];
+  }
+
+  async function slaytlariOlustur() {
+    const d = state.duyurular || {};
+    const liste = [];
+    for (const t of DUYURU_TANIMLARI) {
+      const src = d[t.key];
+      if (!src) continue;
+      if (isPdfDataUrl(src)) {
+        const ad = duyuruPdfAdi(t.key);
+        let sayfa = 1;
+        let hata = false;
+        try { sayfa = Math.min((await pdfBelgesi(t.key)).numPages, SLAYT_MAX_PDF_SAYFA); }
+        catch (err) { console.error('[Slayt] PDF açılamadı:', err); hata = true; }
+        for (let p = 1; p <= sayfa; p++) {
+          liste.push({ tur: 'pdf', key: t.key, sayfa: p, toplam: sayfa, hata,
+                       baslik: `${t.label} — ${ad}${sayfa > 1 ? ` (sayfa ${p}/${sayfa})` : ''}` });
+        }
+      } else {
+        liste.push({ tur: 'img', key: t.key, src, baslik: t.label });
+      }
+    }
+    return liste;
+  }
+
+  async function pdfSayfasiCiz(s) {
+    const doc = await pdfBelgesi(s.key);
+    const page = await doc.getPage(s.sayfa);
+    const v0 = page.getViewport({ scale: 1 });
+    const olcek = Math.min(sahne.clientWidth / v0.width, sahne.clientHeight / v0.height);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const vp = page.getViewport({ scale: olcek * dpr });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(vp.width);
+    canvas.height = Math.ceil(vp.height);
+    canvas.style.width = Math.floor(vp.width / dpr) + 'px';
+    canvas.style.height = Math.floor(vp.height / dpr) + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    return canvas;
+  }
+
+  function sayaciGuncelle() {
+    $('slaytSayac').textContent = slides.length ? `${idx + 1} / ${slides.length}` : '';
+  }
+
+  function ilerlemeyiBaslat() {
+    cubuk.style.animation = 'none';
+    void cubuk.offsetWidth;
+    if (durdu || slides.length < 2) { cubuk.style.width = '0'; return; }
+    cubuk.style.animation = `slaytIlerle ${sure}s linear forwards`;
+  }
+
+  function zamanlayiciKur() {
+    clearTimeout(zamanlayici);
+    ilerlemeyiBaslat();
+    if (durdu || slides.length < 2 || kapandi) return;
+    zamanlayici = setTimeout(() => sonraki(), sure * 1000);
+  }
+
+  async function goster(i) {
+    if (kapandi || slides.length === 0) return;
+    idx = (i + slides.length) % slides.length;
+    const bu = ++jeton;
+    const s = slides[idx];
+    $('slaytBaslik').textContent = s.baslik;
+    sayaciGuncelle();
+    clearTimeout(zamanlayici);
+
+    let icerik;
+    if (s.tur === 'img') {
+      icerik = document.createElement('img');
+      icerik.src = s.src;
+    } else if (s.hata) {
+      icerik = document.createElement('div');
+      icerik.className = 'slayt-mesaj';
+      icerik.textContent = 'Bu PDF görüntülenemedi.';
+    } else {
+      try { icerik = await pdfSayfasiCiz(s); }
+      catch (err) {
+        console.error('[Slayt] PDF sayfası çizilemedi:', err);
+        icerik = document.createElement('div');
+        icerik.className = 'slayt-mesaj';
+        icerik.textContent = 'Bu PDF sayfası görüntülenemedi.';
+      }
+    }
+    if (bu !== jeton || kapandi) return; // arada baska slayta gecildi
+    sahne.replaceChildren(icerik);
+    zamanlayiciKur();
+  }
+
+  async function sonraki() {
+    if (idx + 1 >= slides.length) {
+      // Tur bitti: ekran surekli acik kalacagi icin yeni/silinen duyurulari yakala
+      try {
+        await loadDuyurular();
+        if (duyuruSlaytImzasi() !== imza) {
+          imza = duyuruSlaytImzasi();
+          slides = await slaytlariOlustur();
+          if (slides.length === 0) { kapat(); return; }
+        }
+      } catch (e) { /* mevcut slaytlarla devam */ }
+      goster(0);
+    } else {
+      goster(idx + 1);
+    }
+  }
+  const onceki = () => goster(idx - 1);
+
+  function durdurDevam() {
+    durdu = !durdu;
+    durdurBtn.textContent = durdu ? '▶' : '⏸';
+    zamanlayiciKur();
+  }
+
+  function kontrolleriGoster() {
+    overlay.classList.remove('kontrol-gizli');
+    clearTimeout(gizleZamani);
+    gizleZamani = setTimeout(() => overlay.classList.add('kontrol-gizli'), 3000);
+  }
+
+  async function wakeLockIste() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* desteklenmiyor */ }
+  }
+  const gorunurluk = () => { if (!document.hidden && !kapandi) wakeLockIste(); };
+  const tus = (e) => {
+    if (e.key === 'ArrowRight') { sonraki(); kontrolleriGoster(); }
+    else if (e.key === 'ArrowLeft') { onceki(); kontrolleriGoster(); }
+    else if (e.key === ' ') { e.preventDefault(); durdurDevam(); kontrolleriGoster(); }
+    else if (e.key === 'Escape') kapat();
+  };
+  const boyut = () => { if (slides[idx] && slides[idx].tur === 'pdf') goster(idx); };
+  const tamEkranDegisti = () => { if (!document.fullscreenElement) kapat(); };
+
+  function kapat() {
+    if (kapandi) return;
+    kapandi = true;
+    clearTimeout(zamanlayici);
+    clearTimeout(gizleZamani);
+    document.removeEventListener('keydown', tus);
+    document.removeEventListener('fullscreenchange', tamEkranDegisti);
+    document.removeEventListener('visibilitychange', gorunurluk);
+    window.removeEventListener('resize', boyut);
+    try { if (wakeLock) wakeLock.release(); } catch (e) { /* yoksay */ }
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    overlay.remove();
+  }
+
+  $('slaytKapat').addEventListener('click', kapat);
+  $('slaytOnceki').addEventListener('click', () => { onceki(); kontrolleriGoster(); });
+  $('slaytSonraki').addEventListener('click', () => { sonraki(); kontrolleriGoster(); });
+  durdurBtn.addEventListener('click', durdurDevam);
+  sureSel.addEventListener('change', () => {
+    sure = Number(sureSel.value);
+    localStorage.setItem(SLAYT_SURE_KEY, String(sure));
+    zamanlayiciKur();
+  });
+  overlay.addEventListener('mousemove', kontrolleriGoster);
+  overlay.addEventListener('click', kontrolleriGoster);
+  document.addEventListener('keydown', tus);
+  document.addEventListener('visibilitychange', gorunurluk);
+  window.addEventListener('resize', boyut);
+
+  // Tam ekran (desteklenmezse overlay zaten sayfayi kapladigi icin yine calisir)
+  if (overlay.requestFullscreen) {
+    try {
+      await overlay.requestFullscreen();
+      document.addEventListener('fullscreenchange', tamEkranDegisti);
+    } catch (e) { /* tam ekran reddedildi: sayfa ici tam pencere olarak devam */ }
+  }
+  wakeLockIste();
+  kontrolleriGoster();
+
+  sahne.innerHTML = '<div class="slayt-mesaj">Duyurular hazırlanıyor…</div>';
+  imza = duyuruSlaytImzasi();
+  slides = await slaytlariOlustur();
+  if (kapandi) return;
+  if (slides.length === 0) { kapat(); return; }
+  goster(0);
 }
 
 // ================== PERSONEL DETAY KARTI (OZET SAYFASINDAN ACILIR) ==================

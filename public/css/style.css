@@ -2165,3 +2165,86 @@ body[data-user-role="kontrolcu"] #siralamaGroup .siralama-item-buttons {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ================== OZET: TAM EKRAN + DUYURU SLAYT GOSTERISI ================== */
+.ozet-main-card, .ozet-duyuru-card { position: relative; }
+
+.tam-ekran-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--navy);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tam-ekran-btn:hover { background: #eef1f6; }
+.ozet-details summary .tam-ekran-btn { margin-left: auto; }
+.category-card > .tam-ekran-btn { position: absolute; top: 12px; right: 14px; z-index: 2; }
+
+/* Tam ekrandaki blok (gercek tam ekran veya desteklenmiyorsa sayfayi kaplayan yedek) */
+.tam-ekran-hedef { background: var(--bg); overflow: auto; padding: 28px 36px; margin: 0; }
+.tam-ekran-hedef:fullscreen { background: var(--bg); overflow: auto; padding: 28px 36px; }
+.tam-ekran-hedef:-webkit-full-screen { background: var(--bg); overflow: auto; padding: 28px 36px; }
+.tam-ekran-yedek { position: fixed; inset: 0; z-index: 9000; width: 100%; height: 100%; border-radius: 0; }
+.tam-ekran-hedef .tam-ekran-btn { display: none; }
+.tam-ekran-hedef .actions-table, .tam-ekran-hedef .ozet-stat-grid { font-size: 17px; }
+.tam-ekran-hedef .ozet-details-body { overflow: visible; }
+.tam-ekran-kapat {
+  position: sticky; top: 0; float: right; z-index: 5;
+  border: none; background: var(--navy); color: #fff; border-radius: 8px;
+  padding: 8px 16px; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+}
+
+/* Duyuru slayt gosterisi */
+.slayt-overlay {
+  position: fixed; inset: 0; z-index: 10000;
+  background: #0b1220; color: #fff;
+  display: flex; flex-direction: column;
+  font-family: inherit;
+}
+.slayt-overlay.kontrol-gizli { cursor: none; }
+.slayt-ust {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 22px;
+  background: linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0));
+  transition: opacity 0.3s ease;
+}
+.slayt-overlay.kontrol-gizli .slayt-ust,
+.slayt-overlay.kontrol-gizli .slayt-nav { opacity: 0; pointer-events: none; }
+.slayt-baslik { font-size: 20px; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slayt-sayac { font-size: 15px; opacity: 0.85; white-space: nowrap; }
+.slayt-btn {
+  border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12); color: #fff;
+  border-radius: 8px; padding: 8px 14px; font-size: 15px; font-family: inherit; cursor: pointer;
+}
+.slayt-btn:hover { background: rgba(255,255,255,0.25); }
+.slayt-sure { border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12); color: #fff; border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit; }
+.slayt-sure option { color: #000; }
+.slayt-sahne {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  padding: 64px 70px 34px 70px;
+}
+.slayt-sahne > img, .slayt-sahne > canvas {
+  max-width: 100%; max-height: 100%; object-fit: contain; background: #fff;
+  border-radius: 4px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  animation: slaytGiris 0.45s ease;
+}
+.slayt-mesaj { font-size: 22px; opacity: 0.8; text-align: center; padding: 20px; }
+@keyframes slaytGiris { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: none; } }
+.slayt-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
+  width: 52px; height: 84px; border: none; border-radius: 10px;
+  background: rgba(255,255,255,0.14); color: #fff; font-size: 32px; cursor: pointer;
+  transition: opacity 0.3s ease;
+}
+.slayt-nav:hover { background: rgba(255,255,255,0.3); }
+.slayt-onceki { left: 8px; }
+.slayt-sonraki { right: 8px; }
+.slayt-ilerleme { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(255,255,255,0.15); z-index: 3; }
+.slayt-ilerleme-cubuk { height: 100%; width: 0; background: #4caf50; }
+@keyframes slaytIlerle { from { width: 0; } to { width: 100%; } }
