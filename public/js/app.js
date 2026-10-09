@@ -1724,18 +1724,35 @@ function kalibrasyonEkipmanTablosuHtml() {
     return html;
   }
 
+  const gunSayisi = daysInMonth(state.year, state.month);
   const satirlar = liste.map(e => {
-    const yapilmadi = Object.values(veri).filter(d => d && d.reviewed && d['e_' + e.id] === 'yapilmadi').length;
+    let yapildi = 0;
+    let yapilmadi = 0;
+    for (let d = 1; d <= gunSayisi; d++) {
+      const gun = veri[d];
+      if (!gun || !gun.reviewed) continue;
+      // Kaydedilmis ve "yapilmadi" isaretlenmemis gun = yapildi
+      // (gun penceresinde varsayilan secenek "Yapildi"dir).
+      if (gun['e_' + e.id] === 'yapilmadi') yapilmadi++;
+      else yapildi++;
+    }
+    const yesil = yapildi > 0
+      ? `<strong style="color:#1e7d2e;">${yapildi} gün</strong>`
+      : `<span style="color:#9ca3af;">0</span>`;
+    const kirmizi = yapilmadi > 0
+      ? `<strong style="color:#b91c1c;">${yapilmadi} gün</strong>`
+      : `<span style="color:#9ca3af;">0</span>`;
     return `<tr>
       <td>${escapeHtml(e.ad)}</td>
       <td>${escapeHtml(e.numara)}</td>
       <td>${escapeHtml(e.marka)}</td>
-      <td>${yapilmadi > 0 ? `<span class="badge badge-iptal">${yapilmadi} gün yapılmadı</span>` : `<span style="color:#9ca3af;">—</span>`}</td>
+      <td>${yesil}</td>
+      <td>${kirmizi}</td>
     </tr>`;
   }).join('');
 
   html += `<div style="overflow-x:auto;"><table class="actions-table">
-    <thead><tr><th>Ekipman Adı</th><th>Ekipman No</th><th>Marka</th><th>${MONTHS_TR[state.month - 1]} Ayı</th></tr></thead>
+    <thead><tr><th>Ekipman Adı</th><th>Ekipman No</th><th>Marka</th><th style="color:#1e7d2e;">${MONTHS_TR[state.month - 1]} — Yapıldı</th><th style="color:#b91c1c;">${MONTHS_TR[state.month - 1]} — Yapılmadı</th></tr></thead>
     <tbody>${satirlar}</tbody>
   </table></div>`;
   return html;
