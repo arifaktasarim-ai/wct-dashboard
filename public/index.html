@@ -173,6 +173,35 @@
         <details class="ozet-details" id="kapaliAksiyonlarDetails" style="margin-top:14px;">
           <summary>Kapalı Aksiyonlar <span class="ozet-count-badge" id="kapaliAksiyonSayisi">0</span></summary>
           <div class="ozet-details-body">
+            <div class="asd-sapma-filtre" style="margin-bottom:12px;">
+              <div class="form-row">
+                <label>Ara (aksiyon, açıklama, kapatma nedeni)
+                  <input type="text" id="kapaliFiltreArama" placeholder="örn. terazi">
+                </label>
+                <label>Durum
+                  <select id="kapaliFiltreDurum">
+                    <option value="">Tümü</option>
+                    <option value="Tamamlandı">Tamamlandı</option>
+                    <option value="İptal">İptal</option>
+                  </select>
+                </label>
+                <label>Sahibi
+                  <select id="kapaliFiltreSahibi"></select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label>Tarih Aralığı (Başlangıç)
+                  <input type="date" id="kapaliFiltreBaslangic">
+                </label>
+                <label>Tarih Aralığı (Bitiş)
+                  <input type="date" id="kapaliFiltreBitis">
+                </label>
+                <label style="justify-content:flex-end;">
+                  <button type="button" class="btn-secondary" id="kapaliFiltreTemizle">Filtreyi Temizle</button>
+                </label>
+              </div>
+              <div class="category-hedef" style="margin:4px 0 0 0;padding:0;border:none;">Tarih filtresi, aksiyonun bitiş tarihine (yoksa başlangıç tarihine) göre çalışır.</div>
+            </div>
             <table class="actions-table">
               <thead>
                 <tr>

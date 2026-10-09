@@ -249,6 +249,8 @@ let state = {
   ekipmanlar: [],
   ekipmanArizaKayitlari: [],
   kalibrasyonListeAcik: false,
+  kapaliFiltre: { arama: '', durum: '', sahibi: '', baslangic: '', bitis: '' },
+  pdfOnizlemeCache: {},
   ekipmanArizaFiltre: { durum: { acik: true, kapali: true }, baslangic: '', bitis: '', arama: '' },
   editingEkipmanId: null,
   // Ozet sayfasindaki ASD/Sapma Kayitlari bolumunun filtre durumu.
@@ -497,7 +499,8 @@ async function initAppAfterLogin() {
     ['initPersonelForm', initPersonelForm],
     ['initAyarlarForm', initAyarlarForm],
     ['initBolumOlusturForm', initBolumOlusturForm],
-    ['initEkipmanForm', initEkipmanForm]
+    ['initEkipmanForm', initEkipmanForm],
+    ['initKapaliAksiyonFiltre', initKapaliAksiyonFiltre]
   ];
   steps.forEach(([name, fn]) => {
     try {
@@ -522,6 +525,7 @@ async function initAppAfterLogin() {
   try { showVersion(); } catch (err) { console.error('[BASLANGIC HATASI] showVersion:', err); }
   try { renderOzet(); } catch (err) { console.error('[BASLANGIC HATASI] renderOzet:', err); }
   try { checkSktWarningsAndPopup(); } catch (err) { console.error('[BASLANGIC HATASI] checkSktWarningsAndPopup:', err); }
+  try { startSktGunlukKontrol(); } catch (err) { console.error('[BASLANGIC HATASI] startSktGunlukKontrol:', err); }
   try { await checkGorevlerimVeUyar(); } catch (err) { console.error('[BASLANGIC HATASI] checkGorevlerimVeUyar:', err); }
 }
 
@@ -2445,7 +2449,12 @@ async function renderOzet() {
       <div class="duyuru-thumb-label">${d.label}</div>
       ${d.src
         ? (isPdfDataUrl(d.src)
-            ? `<div class="duyuru-thumb-pdf">📄 PDF<br>(görüntülemek için tıklayın)</div>`
+            ? `<div data-pdf-key="${d.key}" ${(duy[d.key + 'Meta'] && duy[d.key + 'Meta'].onizleme) ? 'data-onizleme-hazir="1"' : ''}>
+                 ${(duy[d.key + 'Meta'] && duy[d.key + 'Meta'].onizleme)
+                    ? `<img src="${duy[d.key + 'Meta'].onizleme}" class="duyuru-thumb-img">`
+                    : `<div class="duyuru-thumb-pdf">📄 PDF<br>(önizleme hazırlanıyor…)</div>`}
+                 <div class="duyuru-thumb-filename" title="${escapeHtml(duyuruPdfAdi(d.key))}">📄 ${escapeHtml(duyuruPdfAdi(d.key))}</div>
+               </div>`
             : `<img src="${d.src}" class="duyuru-thumb-img">`)
         : `<div class="duyuru-thumb-empty">Henüz yüklenmedi</div>`}
     </div>
@@ -2550,6 +2559,7 @@ async function renderOzet() {
 
   initAsdSapmaBlok();
   initEkipmanArizaBlok();
+  duyuruPdfOnizlemeleriniDoldur(container);
 }
 
 // ================== AKSIYONLAR ==================
@@ -2616,6 +2626,59 @@ function badgeClass(durum) {
   return 'badge-devam';
 }
 
+// ---- Kapali Aksiyonlar filtresi ----
+function filtreKapaliAksiyonlar(liste) {
+  const f = state.kapaliFiltre;
+  const q = (f.arama || '').trim().toLowerCase();
+  return liste.filter(a => {
+    if (f.durum && a.durum !== f.durum) return false;
+    if (f.sahibi && a.sahibiId !== f.sahibi) return false;
+    if (q) {
+      const hay = `${a.baslik || ''} ${a.aciklama || ''} ${a.kapatmaNedeni || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    // Tarih: bitis tarihi, yoksa baslangic tarihi
+    const tarih = a.bitis || a.baslangic || '';
+    if (f.baslangic && (!tarih || tarih < f.baslangic)) return false;
+    if (f.bitis && (!tarih || tarih > f.bitis)) return false;
+    return true;
+  });
+}
+
+function kapaliFiltreSahibiDoldur() {
+  const sel = document.getElementById('kapaliFiltreSahibi');
+  if (!sel) return;
+  const secili = state.kapaliFiltre.sahibi;
+  const yeni = '<option value="">Tümü</option>' +
+    (state.personelList || []).map(p => `<option value="${p.id}">${escapeHtml(p.ad)}</option>`).join('');
+  if (sel.dataset.dolu !== String((state.personelList || []).length) || sel.options.length <= 1) {
+    sel.innerHTML = yeni;
+    sel.dataset.dolu = String((state.personelList || []).length);
+  }
+  sel.value = secili;
+}
+
+function initKapaliAksiyonFiltre() {
+  const f = state.kapaliFiltre;
+  const bagla = (id, olay, alan) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener(olay, () => { f[alan] = el.value; renderActions(); });
+  };
+  bagla('kapaliFiltreArama', 'input', 'arama');
+  bagla('kapaliFiltreDurum', 'change', 'durum');
+  bagla('kapaliFiltreSahibi', 'change', 'sahibi');
+  bagla('kapaliFiltreBaslangic', 'change', 'baslangic');
+  bagla('kapaliFiltreBitis', 'change', 'bitis');
+  const temizle = document.getElementById('kapaliFiltreTemizle');
+  if (temizle) temizle.addEventListener('click', () => {
+    Object.assign(f, { arama: '', durum: '', sahibi: '', baslangic: '', bitis: '' });
+    ['kapaliFiltreArama', 'kapaliFiltreDurum', 'kapaliFiltreSahibi', 'kapaliFiltreBaslangic', 'kapaliFiltreBitis']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    renderActions();
+  });
+}
+
 function renderActions() {
   const acikTbody = document.getElementById('actionsTableBody');
   const kapaliTbody = document.getElementById('kapaliAksiyonlarTableBody');
@@ -2624,7 +2687,14 @@ function renderActions() {
   const acikAksiyonlar = state.actions.filter(a => a.durum === 'Devam ediyor');
   const kapaliAksiyonlar = state.actions.filter(a => a.durum !== 'Devam ediyor');
 
-  if (kapaliBadge) kapaliBadge.textContent = kapaliAksiyonlar.length;
+  const kapaliFiltreli = filtreKapaliAksiyonlar(kapaliAksiyonlar);
+  kapaliFiltreSahibiDoldur();
+
+  if (kapaliBadge) {
+    kapaliBadge.textContent = kapaliFiltreli.length === kapaliAksiyonlar.length
+      ? kapaliAksiyonlar.length
+      : `${kapaliFiltreli.length} / ${kapaliAksiyonlar.length}`;
+  }
 
   if (acikAksiyonlar.length === 0) {
     acikTbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#6b7280;">Açık aksiyon yok.</td></tr>`;
@@ -2648,8 +2718,10 @@ function renderActions() {
   if (kapaliTbody) {
     if (kapaliAksiyonlar.length === 0) {
       kapaliTbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#6b7280;">Henüz kapatılmış bir aksiyon yok.</td></tr>`;
+    } else if (kapaliFiltreli.length === 0) {
+      kapaliTbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#6b7280;">Filtreye uyan kapalı aksiyon yok.</td></tr>`;
     } else {
-      kapaliTbody.innerHTML = kapaliAksiyonlar.map(a => `
+      kapaliTbody.innerHTML = kapaliFiltreli.map(a => `
         <tr>
           <td>${escapeHtml(a.baslik)}</td>
           <td>${escapeHtml(a.aciklama || '')}</td>
@@ -4070,6 +4142,87 @@ function openPdfDataUrl(dataUrl) {
   }
 }
 
+// ---- PDF onizleme (ilk sayfa -> kucuk JPEG) ----
+// pdf.js sunucunun kendi public/vendor klasorunden, sadece ihtiyac olunca yuklenir.
+let pdfJsYuklePromise = null;
+function pdfJsYukle() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!pdfJsYuklePromise) {
+    pdfJsYuklePromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = '/vendor/pdfjs/pdf.min.js';
+      s.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.js';
+        resolve(window.pdfjsLib);
+      };
+      s.onerror = () => { pdfJsYuklePromise = null; reject(new Error('pdf.js yüklenemedi')); };
+      document.head.appendChild(s);
+    });
+  }
+  return pdfJsYuklePromise;
+}
+
+async function pdfOnizlemeUret(dataUrl) {
+  const lib = await pdfJsYukle();
+  const bytes = new Uint8Array(await dataUrlToBlob(dataUrl).arrayBuffer());
+  const pdf = await lib.getDocument({ data: bytes }).promise;
+  try {
+    const page = await pdf.getPage(1);
+    const ilk = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: Math.min(2, 360 / ilk.width) });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    return canvas.toDataURL('image/jpeg', 0.72);
+  } finally {
+    pdf.destroy();
+  }
+}
+
+// Kayitli onizleme varsa onu, yoksa (eski yuklemeler) oturum icin bir kez uretip onbellekler.
+async function duyuruPdfOnizlemeAl(key) {
+  const d = state.duyurular || {};
+  const meta = d[key + 'Meta'];
+  if (meta && meta.onizleme) return meta.onizleme;
+  const src = d[key];
+  if (!isPdfDataUrl(src)) return null;
+  const cacheKey = key + ':' + src.length;
+  if (state.pdfOnizlemeCache[cacheKey] === undefined) {
+    state.pdfOnizlemeCache[cacheKey] = pdfOnizlemeUret(src).catch(err => {
+      console.error('[PDF onizleme] uretilemedi:', err);
+      return null;
+    });
+  }
+  return state.pdfOnizlemeCache[cacheKey];
+}
+
+function duyuruPdfAdi(key) {
+  const meta = (state.duyurular || {})[key + 'Meta'];
+  return (meta && meta.ad) ? meta.ad : 'PDF Dosyası';
+}
+
+// Ozet sayfasindaki PDF kutularinda, onizlemesi henuz olmayanlari doldurur.
+function duyuruPdfOnizlemeleriniDoldur(container) {
+  container.querySelectorAll('[data-pdf-key]').forEach(async (wrap) => {
+    if (wrap.dataset.onizlemeHazir === '1') return;
+    const onizleme = await duyuruPdfOnizlemeAl(wrap.dataset.pdfKey);
+    const alan = wrap.querySelector('.duyuru-thumb-pdf');
+    if (!alan || !wrap.isConnected) return;
+    if (onizleme) {
+      const img = document.createElement('img');
+      img.className = 'duyuru-thumb-img';
+      img.src = onizleme;
+      alan.replaceWith(img);
+    } else {
+      alan.innerHTML = '📄 PDF<br>(görüntülemek için tıklayın)';
+    }
+  });
+}
+
 async function loadDuyurular() {
   const res = await fetch('/api/duyurular');
   state.duyurular = await res.json();
@@ -4091,8 +4244,18 @@ function fillDuyuruPreviews() {
       return;
     }
     if (isPdfDataUrl(deger)) {
+      if (pdfBadge) {
+        pdfBadge.style.display = 'flex';
+        pdfBadge.textContent = `📄 ${duyuruPdfAdi(t.key)} — Görüntüle`;
+      }
+      // Kayitli veya (eski yuklemeler icin) uretilen onizlemeyi goster
       img.style.display = 'none';
-      if (pdfBadge) pdfBadge.style.display = 'flex';
+      duyuruPdfOnizlemeAl(t.key).then(onizleme => {
+        if (onizleme && isPdfDataUrl((state.duyurular || {})[t.key])) {
+          img.src = onizleme;
+          img.style.display = 'block';
+        }
+      });
     } else {
       img.src = deger;
       img.style.display = 'block';
@@ -4126,10 +4289,18 @@ function initDuyuruUploads() {
         return;
       }
       const base64 = await fileToBase64(file);
+      // PDF ise: dosya adi + ilk sayfanin kucuk onizleme resmi birlikte saklanir
+      // (<anahtar>Meta alani). Gorsellerde meta temizlenir.
+      let meta = null;
+      if (file.type === 'application/pdf') {
+        meta = { ad: file.name };
+        try { meta.onizleme = await pdfOnizlemeUret(base64); }
+        catch (err) { console.error('[PDF onizleme] uretilemedi:', err); }
+      }
       const res = await fetch('/api/duyurular', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [t.key]: base64 })
+        body: JSON.stringify({ [t.key]: base64, [t.key + 'Meta']: meta })
       });
       state.duyurular = await res.json();
       fillDuyuruPreviews();
@@ -4141,7 +4312,7 @@ function initDuyuruUploads() {
       const res = await fetch('/api/duyurular', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [t.key]: '' })
+        body: JSON.stringify({ [t.key]: '', [t.key + 'Meta']: null })
       });
       state.duyurular = await res.json();
       fillDuyuruPreviews();
@@ -4299,6 +4470,59 @@ function openPersonDetailModal(personId) {
 
 // ================== SKT / SURE TAKIBI ==================
 
+// Gunluk uyari: sayfa yenilemeye gerek kalmadan, sekme acik oldukca her gun
+// (SKT'ye 3 gun ve altinda kalan veya suresi dolmus kayit varsa) bir kez uyarir.
+const SKT_SON_UYARI_KEY = 'wct_dashboard_skt_son_uyari';
+let sktGunlukKontrolIntervalId = null;
+
+function bugunAnahtari() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function sktGunlukKontrol() {
+  if (typeof currentUser === 'undefined' || !currentUser) return; // giris yapilmamis
+  let bugunGosterildi = false;
+  try { bugunGosterildi = localStorage.getItem(SKT_SON_UYARI_KEY) === bugunAnahtari(); } catch (e) { /* yoksay */ }
+  if (bugunGosterildi) return;
+
+  try {
+    const res = await fetch('/api/skt');
+    if (!res.ok) return;
+    state.sktList = await res.json();
+    renderSktTable();
+  } catch (err) {
+    return; // baglanti yok: bir sonraki kontrolde tekrar denenir
+  }
+
+  const kritik = (state.sktList || [])
+    .map(item => ({ item, info: computeSktInfo(item) }))
+    .filter(x => x.info.durum !== 'green')
+    .sort((x, y) => x.info.kalanGun - y.info.kalanGun);
+  if (kritik.length === 0) return;
+
+  checkSktWarningsAndPopup();
+
+  // Masaustu bildirimleri acik ise ayrica bildirim gonder
+  try {
+    if ('Notification' in window && Notification.permission === 'granted' && localStorage.getItem(BILDIRIM_ENABLED_KEY) === '1') {
+      const govde = kritik.slice(0, 4).map(({ item, info }) =>
+        `${item.ad}: ${info.kalanGun < 0 ? Math.abs(info.kalanGun) + ' gün önce doldu' : info.kalanGun === 0 ? 'bugün doluyor' : info.kalanGun + ' gün kaldı'}`
+      ).join('\n');
+      new Notification('⚠ SKT / Süre Uyarısı', { body: govde, tag: 'skt-gunluk', requireInteraction: true });
+    }
+  } catch (err) { console.error('[SKT] bildirim gonderilemedi:', err); }
+}
+
+function startSktGunlukKontrol() {
+  if (sktGunlukKontrolIntervalId) return;
+  // Sekme acik kaldikca 5 dakikada bir tarih/kayit kontrolu; ayrica sekmeye
+  // geri donuldugunde hemen kontrol (gece yarisi gecildiyse yeni gun uyarisi).
+  sktGunlukKontrolIntervalId = setInterval(sktGunlukKontrol, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) sktGunlukKontrol(); });
+  window.addEventListener('focus', sktGunlukKontrol);
+}
+
 function computeSktInfo(item) {
   const hazirlanma = new Date(item.hazirlanmaTarihi + 'T00:00:00');
   const sktDate = new Date(hazirlanma.getTime() + Number(item.sureGun || 0) * 86400000);
@@ -4401,8 +4625,13 @@ function checkSktWarningsAndPopup() {
 
   if (critical.length === 0) return;
 
+  // Ust uste birden fazla uyari penceresi acilmasin
+  document.querySelectorAll('.skt-warning-overlay').forEach(el => el.remove());
+  // Bugun icin uyari gosterildi (gunluk kontrol ayni gun tekrar acmasin)
+  try { localStorage.setItem(SKT_SON_UYARI_KEY, bugunAnahtari()); } catch (e) { /* yoksay */ }
+
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
+  overlay.className = 'modal-overlay skt-warning-overlay';
   overlay.innerHTML = `
     <div class="modal-box skt-warning-box">
       <div class="modal-header" style="background:#b91c1c;">

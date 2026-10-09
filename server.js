@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-10-08-3';
+const APP_VERSION = 'v2026-10-09-1';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -1989,15 +1989,6 @@ app.post(
     const db = readDB(req.currentBolumId);
     const globalDb = readGlobalDB();
 
-    const yeniBolumAdi =
-      String((req.body && req.body.bolumAdi) || '').trim();
-
-    if (!yeniBolumAdi) {
-      return res.status(400).json({
-        error: 'Bolum adi bos birakilamaz.'
-      });
-    }
-
     const mevcutBolum =
       (globalDb.bolumler || []).find(
         b => b.id === req.currentBolumId
@@ -2006,6 +1997,23 @@ app.post(
     if (!mevcutBolum) {
       return res.status(404).json({
         error: 'Mevcut bolum bulunamadi.'
+      });
+    }
+
+    // Sayfa siralamasi gibi sadece belirli bir ayari degistiren istekler
+    // "bolumAdi" gondermez; bu durumda mevcut bolum adi korunur.
+    // Alan acikca gonderilip bos birakilirsa yine hata verilir.
+    const bolumAdiGonderildi =
+      req.body && req.body.bolumAdi !== undefined;
+
+    const yeniBolumAdi =
+      bolumAdiGonderildi
+        ? String(req.body.bolumAdi || '').trim()
+        : String(mevcutBolum.ad || '').trim();
+
+    if (!yeniBolumAdi) {
+      return res.status(400).json({
+        error: 'Bolum adi bos birakilamaz.'
       });
     }
 
