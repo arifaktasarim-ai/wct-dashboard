@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-10-08-2';
+const APP_VERSION = 'v2026-10-08-3';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -2960,11 +2960,19 @@ app.delete(
 function ekipmanBilgisiTemizle(body) {
   body = body || {};
 
-  return {
+  const bilgi = {
     ad: String(body.ad || '').trim(),
     numara: String(body.numara || '').trim(),
     marka: String(body.marka || '').trim()
   };
+
+  // "Kalibrasyonu takip et": true/false. Gonderilmediyse undefined kalir
+  // (guncellemede mevcut deger korunur, eklemede false sayilir).
+  if (typeof body.kalibrasyonTakip === 'boolean') {
+    bilgi.kalibrasyonTakip = body.kalibrasyonTakip;
+  }
+
+  return bilgi;
 }
 
 app.get(
@@ -3012,6 +3020,7 @@ app.post(
           'ekp' +
           Date.now().toString() +
           Math.random().toString(36).slice(2, 6),
+        kalibrasyonTakip: false,
         ...bilgi,
         olusturmaTarihi: new Date().toISOString()
       };

@@ -27,12 +27,18 @@ const KAL_ESKI_ALANLAR = [
   { key: 'turbidimetre', label: 'Türbidimetre' }
 ];
 
+// Kalibrasyonu takip edilecek ekipmanlar. Alani hic olmayan eski ekipmanlar
+// (bu ozellikten once eklenenler) onceki davranisi korumak icin takipli sayilir.
+function kalibrasyonTakipliEkipmanlar() {
+  return ((typeof state !== 'undefined' && state.ekipmanlar) || []).filter(e => e.kalibrasyonTakip !== false);
+}
+
 function kalibrasyonAlanlari() {
   const liste = (typeof state !== 'undefined' && state.ekipmanlar) || [];
   if (liste.length === 0) {
     return KAL_ESKI_ALANLAR.map(f => ({ key: f.key, label: f.label, type: 'triState' }));
   }
-  return liste.map(e => ({ key: 'e_' + e.id, label: `${e.ad} (${e.numara})`, type: 'triState' }));
+  return kalibrasyonTakipliEkipmanlar().map(e => ({ key: 'e_' + e.id, label: `${e.ad} (${e.numara})`, type: 'triState' }));
 }
 
 // Gun duzenleme penceresi icin yapilandirma. Kalibrasyonda, ekipmanlar
@@ -242,6 +248,7 @@ let state = {
   // acilan arizali/eksik ekipman kayitlari (Ozet sayfasi).
   ekipmanlar: [],
   ekipmanArizaKayitlari: [],
+  kalibrasyonListeAcik: false,
   ekipmanArizaFiltre: { durum: { acik: true, kapali: true }, baslangic: '', bitis: '', arama: '' },
   editingEkipmanId: null,
   // Ozet sayfasindaki ASD/Sapma Kayitlari bolumunun filtre durumu.
@@ -1704,6 +1711,9 @@ function renderDayGrid(category, container, layout, totalDays) {
 
   container.innerHTML = html;
 
+  const kalListe = container.querySelector('#kalEkipmanListe');
+  if (kalListe) kalListe.addEventListener('toggle', () => { state.kalibrasyonListeAcik = kalListe.open; });
+
   container.querySelectorAll('[data-clickable="1"]').forEach(cell => {
     cell.addEventListener('click', () => {
       openDayModal(category, Number(cell.dataset.day));
@@ -1714,14 +1724,25 @@ function renderDayGrid(category, container, layout, totalDays) {
 // Kalibrasyonlar karti altinda: Ayarlar'dan tanimlanan tum ekipmanlar ve bu
 // aydaki "yapılmadı" gun sayilari.
 function kalibrasyonEkipmanTablosuHtml() {
-  const liste = state.ekipmanlar || [];
+  const tumEkipman = state.ekipmanlar || [];
+  const liste = kalibrasyonTakipliEkipmanlar();
   const veri = state.categoryData.kalibrasyon || {};
 
-  let html = `<div class="modal-field-group-label" style="margin-top:18px;">Kalibrasyon Takibindeki Ekipmanlar</div>`;
+  // Acilir/kapanir liste (acik/kapali durumu oturum boyunca hatirlanir)
+  const sar = (icerik) => `<details class="ozet-details" id="kalEkipmanListe" style="margin-top:18px;" ${state.kalibrasyonListeAcik ? 'open' : ''}>
+    <summary>Kalibrasyon Takibindeki Ekipmanlar <span class="ozet-count-badge">${liste.length}</span></summary>
+    <div class="ozet-details-body">${icerik}</div>
+  </details>`;
+
+  if (tumEkipman.length > 0 && liste.length === 0) {
+    return sar(`<div class="category-hedef" style="margin-top:0;">Kalibrasyonu takip edilecek ekipman seçilmedi. Admin, <strong>Ayarlar → Ekipman Ekle / Çıkar</strong> bölümünde ilgili ekipmanlarda "Kalibrasyonu takip et" seçeneğini işaretleyince burada listelenir.</div>`);
+  }
+
+  let html = '';
 
   if (liste.length === 0) {
     html += `<div class="category-hedef" style="margin-top:6px;">Henüz ekipman tanımlanmamış; şimdilik önceki sabit liste kullanılıyor. Admin, <strong>Ayarlar → Ekipman Ekle / Çıkar</strong> bölümünden ekipman ekledikçe kalibrasyon takibi bu ekipmanlar üzerinden yapılır ve burada listelenir.</div>`;
-    return html;
+    return sar(html);
   }
 
   const gunSayisi = daysInMonth(state.year, state.month);
@@ -1755,7 +1776,7 @@ function kalibrasyonEkipmanTablosuHtml() {
     <thead><tr><th>Ekipman Adı</th><th>Ekipman No</th><th>Marka</th><th style="color:#1e7d2e;">${MONTHS_TR[state.month - 1]} — Yapıldı</th><th style="color:#b91c1c;">${MONTHS_TR[state.month - 1]} — Yapılmadı</th></tr></thead>
     <tbody>${satirlar}</tbody>
   </table></div>`;
-  return html;
+  return sar(html);
 }
 
 // ---------- Gun duzenleme penceresi (modal) ----------
@@ -3492,7 +3513,7 @@ function renderEkipmanTable() {
   if (!tbody) return;
   const liste = state.ekipmanlar || [];
   if (liste.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#6b7280;">Henüz ekipman eklenmedi.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#6b7280;">Henüz ekipman eklenmedi.</td></tr>`;
     return;
   }
   tbody.innerHTML = liste.map(e => `
@@ -3500,6 +3521,7 @@ function renderEkipmanTable() {
       <td>${escapeHtml(e.ad)}</td>
       <td>${escapeHtml(e.numara)}</td>
       <td>${escapeHtml(e.marka)}</td>
+      <td>${e.kalibrasyonTakip !== false ? '<strong style="color:#1e7d2e;">Evet</strong>' : '<span style="color:#9ca3af;">Hayır</span>'}</td>
       <td>
         <button type="button" class="icon-btn" data-ekipman-edit="${e.id}">Düzenle</button>
         <button type="button" class="icon-btn danger" data-ekipman-delete="${e.id}">Çıkar</button>
@@ -3518,6 +3540,8 @@ function resetEkipmanForm() {
   const form = document.getElementById('ekipmanForm');
   if (form) form.reset();
   state.editingEkipmanId = null;
+  const kalChk = document.getElementById('ekpKalTakip');
+  if (kalChk) kalChk.checked = false;
   const submitBtn = document.getElementById('ekipmanSubmitBtn');
   if (submitBtn) submitBtn.textContent = 'Ekipman Ekle';
   const iptalBtn = document.getElementById('ekipmanIptalBtn');
@@ -3530,6 +3554,7 @@ function startEditEkipman(id) {
   document.getElementById('ekpAd').value = e.ad || '';
   document.getElementById('ekpNumara').value = e.numara || '';
   document.getElementById('ekpMarka').value = e.marka || '';
+  document.getElementById('ekpKalTakip').checked = e.kalibrasyonTakip !== false;
   state.editingEkipmanId = id;
   document.getElementById('ekipmanSubmitBtn').textContent = 'Ekipmanı Güncelle';
   document.getElementById('ekipmanIptalBtn').style.display = '';
@@ -3564,7 +3589,8 @@ function initEkipmanForm() {
     const payload = {
       ad: document.getElementById('ekpAd').value.trim(),
       numara: document.getElementById('ekpNumara').value.trim(),
-      marka: document.getElementById('ekpMarka').value.trim()
+      marka: document.getElementById('ekpMarka').value.trim(),
+      kalibrasyonTakip: document.getElementById('ekpKalTakip').checked
     };
     if (!payload.ad || !payload.numara || !payload.marka) {
       alert('Ekipman adı, ekipman numarası ve markası zorunludur.');
