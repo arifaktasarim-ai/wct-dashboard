@@ -2248,3 +2248,27 @@ body[data-user-role="kontrolcu"] #siralamaGroup .siralama-item-buttons {
 .slayt-ilerleme { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(255,255,255,0.15); z-index: 3; }
 .slayt-ilerleme-cubuk { height: 100%; width: 0; background: #4caf50; }
 @keyframes slaytIlerle { from { width: 0; } to { width: 100%; } }
+
+/* ================== AYARLAR SAYFASI: HIZALAMA + KAYDET BUTONU ================== */
+/* Form, sadece ilk uc grubu gri kutuyla sariyordu; diger gruplar (Sayfa Siralamasi,
+   Ekipman, Bildirimler) kutunun disinda ve daha genis kaliyordu. Form kutusu
+   kaldirilarak tum gruplar ayni genislikte ve ayni hizada gosterilir. */
+#ayarlarForm.action-form {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+#ayarlarKaydetBtn {
+  display: block;
+  width: auto;
+  margin: 18px 0 0 auto;
+  padding: 9px 22px;
+  font-size: 14px;
+}
+
+@media (max-width: 560px) {
+  #ayarlarKaydetBtn { width: 100%; }
+}
