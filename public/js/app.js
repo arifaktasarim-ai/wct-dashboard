@@ -526,6 +526,7 @@ async function initAppAfterLogin() {
   try { renderOzet(); } catch (err) { console.error('[BASLANGIC HATASI] renderOzet:', err); }
   try { checkSktWarningsAndPopup(); } catch (err) { console.error('[BASLANGIC HATASI] checkSktWarningsAndPopup:', err); }
   try { startSktGunlukKontrol(); } catch (err) { console.error('[BASLANGIC HATASI] startSktGunlukKontrol:', err); }
+  try { startTerminGunlukKontrol(); } catch (err) { console.error('[BASLANGIC HATASI] startTerminGunlukKontrol:', err); }
   try { await checkGorevlerimVeUyar(); } catch (err) { console.error('[BASLANGIC HATASI] checkGorevlerimVeUyar:', err); }
 }
 
@@ -2373,14 +2374,15 @@ async function renderOzet() {
   } else {
     actionsHtml = `
       <table class="actions-table">
-        <thead><tr><th>Aksiyon</th><th>Sahibi</th><th>Başlangıç</th><th>Bitiş</th><th>Durum</th></tr></thead>
+        <thead><tr><th>Açılış Tarihi</th><th>Konu</th><th>Aksiyon / Eylem</th><th>Aksiyon Sorumlusu</th><th>Termin Tarihi</th><th>Durum</th></tr></thead>
         <tbody>
           ${acikAksiyonlar.map(a => `
             <tr>
-              <td>${escapeHtml(a.baslik)}</td>
+              <td>${a.baslangic ? formatDateSimpleTR(a.baslangic) : '-'}</td>
+              <td>${a.konu ? escapeHtml(a.konu) : '<span style="color:#9ca3af;">-</span>'}</td>
+              <td>${aksiyonEylemHucresi(a)}</td>
               <td>${a.sahibiId ? escapeHtml(getPersonName(a.sahibiId)) : '-'}</td>
-              <td>${a.baslangic || ''}</td>
-              <td>${a.bitis || ''}</td>
+              <td>${terminHucreHtml(a)}</td>
               <td><span class="badge badge-devam">${a.durum}</span></td>
             </tr>
           `).join('')}
@@ -2568,8 +2570,27 @@ async function renderOzet() {
 function updateKapatmaNedeniGorunurlugu() {
   const durum = document.getElementById('actDurum').value;
   const row = document.getElementById('actKapatmaNedeniRow');
-  if (!row) return;
-  row.style.display = (durum === 'Tamamlandı' || durum === 'İptal') ? 'flex' : 'none';
+  if (row) row.style.display = (durum === 'Tamamlandı' || durum === 'İptal') ? 'flex' : 'none';
+
+  // Tamamlanma Tarihi sadece "Tamamlandı" durumunda doldurulur (bos ise bugun
+  // otomatik yazilir, istenirse degistirilebilir); diger durumlarda temizlenir.
+  const tamEl = document.getElementById('actTamamlanma');
+  if (tamEl) {
+    if (durum === 'Tamamlandı') {
+      tamEl.disabled = false;
+      if (!tamEl.value) tamEl.value = bugunAnahtari();
+    } else {
+      tamEl.value = '';
+      tamEl.disabled = true;
+    }
+  }
+}
+
+// Yeni aksiyon formu varsayilani: Acilis Tarihi = bugun
+function aksiyonFormuVarsayilanlariniUygula() {
+  const baslangic = document.getElementById('actBaslangic');
+  if (baslangic && !baslangic.value) baslangic.value = bugunAnahtari();
+  updateKapatmaNedeniGorunurlugu();
 }
 
 function initActionForm() {
@@ -2582,16 +2603,25 @@ function initActionForm() {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    // Not: 'aciklama' gonderilmez; eski kayitlardaki aciklama metni korunur.
     const payload = {
+      baslangic: document.getElementById('actBaslangic').value,
+      konu: document.getElementById('actKonu').value.trim(),
       baslik: document.getElementById('actBaslik').value.trim(),
       sahibiId: document.getElementById('actSahibi').value,
-      durum: document.getElementById('actDurum').value,
-      baslangic: document.getElementById('actBaslangic').value,
       bitis: document.getElementById('actBitis').value,
-      aciklama: document.getElementById('actAciklama').value.trim(),
+      durum: document.getElementById('actDurum').value,
+      tamamlanmaTarihi: document.getElementById('actTamamlanma').value,
       kapatmaNedeni: document.getElementById('actKapatmaNedeni').value.trim()
     };
-    if (!payload.baslik) return;
+    if (!payload.baslik || !payload.konu || !payload.sahibiId) {
+      alert('Konu, Aksiyon / Eylem ve Aksiyon Sorumlusu alanları zorunludur.');
+      return;
+    }
+    if (payload.bitis && payload.baslangic && payload.bitis < payload.baslangic) {
+      alert('Termin tarihi, açılış tarihinden önce olamaz.');
+      return;
+    }
 
     if (state.editingActionId) {
       await fetch(`/api/actions/${state.editingActionId}`, {
@@ -2610,9 +2640,10 @@ function initActionForm() {
     }
 
     form.reset();
-    updateKapatmaNedeniGorunurlugu();
-    loadActions();
+    aksiyonFormuVarsayilanlariniUygula();
+    await loadActions();
   });
+  aksiyonFormuVarsayilanlariniUygula();
 }
 
 async function loadActions() {
@@ -2635,11 +2666,11 @@ function filtreKapaliAksiyonlar(liste) {
     if (f.durum && a.durum !== f.durum) return false;
     if (f.sahibi && a.sahibiId !== f.sahibi) return false;
     if (q) {
-      const hay = `${a.baslik || ''} ${a.aciklama || ''} ${a.kapatmaNedeni || ''}`.toLowerCase();
+      const hay = `${a.konu || ''} ${a.baslik || ''} ${a.aciklama || ''} ${a.kapatmaNedeni || ''}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
-    // Tarih: bitis tarihi, yoksa baslangic tarihi
-    const tarih = a.bitis || a.baslangic || '';
+    // Tarih: tamamlanma tarihi, yoksa termin, o da yoksa acilis tarihi
+    const tarih = a.tamamlanmaTarihi || a.bitis || a.baslangic || '';
     if (f.baslangic && (!tarih || tarih < f.baslangic)) return false;
     if (f.bitis && (!tarih || tarih > f.bitis)) return false;
     return true;
@@ -2680,6 +2711,126 @@ function initKapaliAksiyonFiltre() {
   });
 }
 
+// ---- Termin tarihi yaklasan aksiyonlar ----
+// Not: ASD/Sapma kayitlarindan otomatik acilan aksiyonlar (kaynakTur: asd/sapma)
+// bu uyari sisteminin disindadir.
+const TERMIN_UYARI_GUN = 3;
+const TERMIN_SON_UYARI_KEY = 'wct_dashboard_termin_son_uyari';
+let terminGunlukKontrolIntervalId = null;
+
+// Uygun degilse null; aksi halde { kalan, seviye: 'gecikti' | 'yaklasti' | 'normal' }
+function aksiyonTerminDurumu(a) {
+  if (!a || a.durum !== 'Devam ediyor' || !a.bitis) return null;
+  if (a.kaynakTur === 'asd' || a.kaynakTur === 'sapma') return null;
+  const termin = new Date(a.bitis + 'T00:00:00');
+  if (isNaN(termin.getTime())) return null;
+  const bugun = new Date(); bugun.setHours(0, 0, 0, 0);
+  const kalan = Math.round((termin.getTime() - bugun.getTime()) / 86400000);
+  return { kalan, seviye: kalan < 0 ? 'gecikti' : (kalan <= TERMIN_UYARI_GUN ? 'yaklasti' : 'normal') };
+}
+
+function terminKalanMetni(kalan) {
+  if (kalan < 0) return `${Math.abs(kalan)} gün gecikti`;
+  if (kalan === 0) return 'Bugün termin';
+  return `${kalan} gün kaldı`;
+}
+
+// Tablo hucresi: termin tarihi + (yaklasan/geciken ise) renkli uyari rozeti
+function terminHucreHtml(a) {
+  if (!a.bitis) return '<span style="color:#9ca3af;">-</span>';
+  const d = aksiyonTerminDurumu(a);
+  let rozet = '';
+  if (d && d.seviye !== 'normal') {
+    rozet = `<span class="termin-rozet ${d.seviye === 'gecikti' ? 'termin-gecikti' : 'termin-yaklasti'}">${d.seviye === 'gecikti' ? '⛔' : '⏰'} ${terminKalanMetni(d.kalan)}</span>`;
+  }
+  return `${formatDateSimpleTR(a.bitis)}${rozet}`;
+}
+
+// Aksiyon / Eylem hucresi: eski kayitlarda ayri tutulan aciklama metni kaybolmasin diye altinda gosterilir
+function aksiyonEylemHucresi(a) {
+  return `${escapeHtml(a.baslik || '')}${a.aciklama ? `<span class="aksiyon-eski-aciklama">${escapeHtml(a.aciklama)}</span>` : ''}`;
+}
+
+function terminUyariPopupGoster(kritik) {
+  document.querySelectorAll('.termin-warning-overlay').forEach(el => el.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay termin-warning-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box skt-warning-box">
+      <div class="modal-header" style="background:#b45309;">
+        <h3>⏰ Termin Tarihi Yaklaşan Aksiyonlar</h3>
+        <button class="modal-close" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0 0 10px 0;font-size:13.5px;color:var(--text);">Termin tarihi ${TERMIN_UYARI_GUN} gün içinde olan veya geçmiş açık aksiyonlar:</p>
+        ${kritik.map(({ a, d }) => `
+          <div class="skt-warning-item ${d.seviye === 'gecikti' ? 'skt-warning-red' : 'skt-warning-yellow'}">
+            <strong>${escapeHtml(a.konu ? a.konu + ' — ' : '')}${escapeHtml(a.baslik || '')}</strong><br>
+            <span>${a.sahibiId ? 'Sorumlu: ' + escapeHtml(getPersonName(a.sahibiId)) + ' · ' : ''}${d.seviye === 'gecikti' ? '⛔' : '⏰'} ${terminKalanMetni(d.kalan)}</span>
+            <span class="skt-warning-date">(Termin: ${formatDateSimpleTR(a.bitis)})</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" id="terminUyariGitBtn">Aksiyonlara Git</button>
+        <button type="button" class="btn-primary" id="terminUyariOkBtn">Anladım</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector('.modal-close').addEventListener('click', close);
+  overlay.querySelector('#terminUyariOkBtn').addEventListener('click', close);
+  overlay.querySelector('#terminUyariGitBtn').addEventListener('click', () => {
+    close();
+    const tab = document.querySelector('.tab-btn[data-tab="aksiyonlar"]');
+    if (tab) tab.click();
+  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+}
+
+// Gunde bir kez (sayfa yenilemeden, sekme acik oldukca) yaklasan/geciken termin
+// icin uyari penceresi + (aciksa) masaustu bildirimi gosterir.
+async function terminGunlukKontrol() {
+  if (typeof currentUser === 'undefined' || !currentUser) return;
+  try { if (localStorage.getItem(TERMIN_SON_UYARI_KEY) === bugunAnahtari()) return; } catch (e) { /* yoksay */ }
+
+  try {
+    const res = await fetch('/api/actions');
+    if (!res.ok) return;
+    state.actions = await res.json();
+    renderActions();
+  } catch (err) {
+    return; // baglanti yok: sonraki kontrolde tekrar denenir
+  }
+
+  const kritik = (state.actions || [])
+    .map(a => ({ a, d: aksiyonTerminDurumu(a) }))
+    .filter(x => x.d && x.d.seviye !== 'normal')
+    .sort((x, y) => x.d.kalan - y.d.kalan);
+  if (kritik.length === 0) return;
+
+  try { localStorage.setItem(TERMIN_SON_UYARI_KEY, bugunAnahtari()); } catch (e) { /* yoksay */ }
+  terminUyariPopupGoster(kritik);
+
+  try {
+    if ('Notification' in window && Notification.permission === 'granted' && localStorage.getItem(BILDIRIM_ENABLED_KEY) === '1') {
+      const govde = kritik.slice(0, 4).map(({ a, d }) =>
+        `${a.konu ? a.konu + ': ' : ''}${a.baslik} — ${terminKalanMetni(d.kalan)}`).join('\n');
+      new Notification('⏰ Aksiyon Termin Uyarısı', { body: govde, tag: 'termin-gunluk', requireInteraction: true });
+    }
+  } catch (err) { console.error('[Termin] bildirim gonderilemedi:', err); }
+}
+
+function startTerminGunlukKontrol() {
+  if (terminGunlukKontrolIntervalId) return;
+  terminGunlukKontrolIntervalId = setInterval(terminGunlukKontrol, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) terminGunlukKontrol(); });
+  window.addEventListener('focus', terminGunlukKontrol);
+  // Acilista SKT uyarisiyla ust uste binmesin diye kisa bir gecikmeyle
+  setTimeout(terminGunlukKontrol, 1500);
+}
+
 function renderActions() {
   const acikTbody = document.getElementById('actionsTableBody');
   const kapaliTbody = document.getElementById('kapaliAksiyonlarTableBody');
@@ -2698,15 +2849,16 @@ function renderActions() {
   }
 
   if (acikAksiyonlar.length === 0) {
-    acikTbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#6b7280;">Açık aksiyon yok.</td></tr>`;
+    acikTbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#6b7280;">Açık aksiyon yok.</td></tr>`;
   } else {
     acikTbody.innerHTML = acikAksiyonlar.map(a => `
       <tr>
-        <td>${escapeHtml(a.baslik)}</td>
-        <td>${escapeHtml(a.aciklama || '')}</td>
+        <td>${a.baslangic ? formatDateSimpleTR(a.baslangic) : '-'}</td>
+        <td>${a.konu ? escapeHtml(a.konu) : '<span style="color:#9ca3af;">-</span>'}</td>
+        <td>${aksiyonEylemHucresi(a)}</td>
         <td>${a.sahibiId ? escapeHtml(getPersonName(a.sahibiId)) : '-'}</td>
-        <td>${a.baslangic || ''}</td>
-        <td>${a.bitis || ''}</td>
+        <td>${terminHucreHtml(a)}</td>
+        <td>${a.tamamlanmaTarihi ? formatDateSimpleTR(a.tamamlanmaTarihi) : '<span style="color:#9ca3af;">-</span>'}</td>
         <td><span class="badge ${badgeClass(a.durum)}">${a.durum}</span></td>
         <td>
           <button class="icon-btn" data-edit="${a.id}">Düzenle</button>
@@ -2718,17 +2870,18 @@ function renderActions() {
 
   if (kapaliTbody) {
     if (kapaliAksiyonlar.length === 0) {
-      kapaliTbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#6b7280;">Henüz kapatılmış bir aksiyon yok.</td></tr>`;
+      kapaliTbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#6b7280;">Henüz kapatılmış bir aksiyon yok.</td></tr>`;
     } else if (kapaliFiltreli.length === 0) {
-      kapaliTbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#6b7280;">Filtreye uyan kapalı aksiyon yok.</td></tr>`;
+      kapaliTbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#6b7280;">Filtreye uyan kapalı aksiyon yok.</td></tr>`;
     } else {
       kapaliTbody.innerHTML = kapaliFiltreli.map(a => `
         <tr>
-          <td>${escapeHtml(a.baslik)}</td>
-          <td>${escapeHtml(a.aciklama || '')}</td>
+          <td>${a.baslangic ? formatDateSimpleTR(a.baslangic) : '-'}</td>
+          <td>${a.konu ? escapeHtml(a.konu) : '<span style="color:#9ca3af;">-</span>'}</td>
+          <td>${aksiyonEylemHucresi(a)}</td>
           <td>${a.sahibiId ? escapeHtml(getPersonName(a.sahibiId)) : '-'}</td>
-          <td>${a.baslangic || ''}</td>
-          <td>${a.bitis || ''}</td>
+          <td>${a.bitis ? formatDateSimpleTR(a.bitis) : '<span style="color:#9ca3af;">-</span>'}</td>
+          <td>${a.tamamlanmaTarihi ? formatDateSimpleTR(a.tamamlanmaTarihi) : '<span style="color:#9ca3af;">-</span>'}</td>
           <td><span class="badge ${badgeClass(a.durum)}">${a.durum}</span></td>
           <td>${a.kapatmaNedeni ? escapeHtml(a.kapatmaNedeni) : '<em style="color:#9ca3af;">Belirtilmemiş</em>'}</td>
           <td>
@@ -2754,13 +2907,16 @@ function renderActions() {
 function startEditAction(id) {
   const action = state.actions.find(a => a.id === id);
   if (!action) return;
+  document.getElementById('actBaslangic').value = action.baslangic || '';
+  document.getElementById('actKonu').value = action.konu || '';
   document.getElementById('actBaslik').value = action.baslik || '';
   fillPersonelSelect(document.getElementById('actSahibi'), action.sahibiId);
-  document.getElementById('actDurum').value = action.durum || 'Devam ediyor';
-  document.getElementById('actBaslangic').value = action.baslangic || '';
   document.getElementById('actBitis').value = action.bitis || '';
-  document.getElementById('actAciklama').value = action.aciklama || '';
+  document.getElementById('actDurum').value = action.durum || 'Devam ediyor';
   document.getElementById('actKapatmaNedeni').value = action.kapatmaNedeni || '';
+  // Once mevcut tamamlanma tarihini yaz, sonra gorunurluk kuralini uygula
+  const tamEl = document.getElementById('actTamamlanma');
+  tamEl.value = action.tamamlanmaTarihi || '';
   updateKapatmaNedeniGorunurlugu();
   state.editingActionId = id;
   document.querySelector('#actionForm .btn-primary').textContent = 'Aksiyonu Güncelle';

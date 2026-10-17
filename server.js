@@ -70,7 +70,7 @@ app.use(
 // SURUM
 // ============================================================
 
-const APP_VERSION = 'v2026-10-09-3';
+const APP_VERSION = 'v2026-10-17-1';
 
 app.get('/api/version', (req, res) => {
   res.json({
@@ -1294,6 +1294,7 @@ app.post(
               Date.now().toString() +
               Math.random().toString(36).slice(2, 6) +
               'e',
+            konu: 'Arızalı/Eksik Ekipman',
             baslik: `Arızalı/Eksik Ekipman: ${ekp.ad} (${ekp.numara}) — Arıza Kodu ${arizaKodu}`,
             aciklama: item.not || '',
             baslangic: tarih,
@@ -2164,6 +2165,11 @@ app.get(
   }
 );
 
+// Sunucu UTC'de calissa bile Turkiye tarihini (YYYY-MM-DD) verir.
+function bugunTarihiTR() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+}
+
 app.post(
   '/api/actions',
   requireRole('kontrolcu'),
@@ -2172,7 +2178,11 @@ app.post(
 
     const newAction = {
       id: Date.now().toString(),
+      // Aksiyon sayfasi alanlari: Acilis Tarihi (baslangic), Konu (konu),
+      // Aksiyon/Eylem (baslik), Aksiyon Sorumlusu (sahibiId),
+      // Termin Tarihi (bitis), Tamamlanma Tarihi (tamamlanmaTarihi)
       baslik: req.body.baslik || '',
+      konu: req.body.konu || '',
       aciklama: req.body.aciklama || '',
       baslangic: req.body.baslangic || '',
       bitis: req.body.bitis || '',
@@ -2181,9 +2191,21 @@ app.post(
         'Devam ediyor',
       sahibiId:
         req.body.sahibiId || '',
+      kapatmaNedeni:
+        req.body.kapatmaNedeni || '',
+      tamamlanmaTarihi:
+        req.body.tamamlanmaTarihi || '',
       olusturmaTarihi:
         new Date().toISOString()
     };
+
+    // Tamamlandi olarak acilirsa ve tarih verilmediyse bugunun tarihi (TR)
+    // yazilir; tamamlanmamis aksiyonda tamamlanma tarihi olmaz.
+    if (newAction.durum === 'Tamamlandı') {
+      if (!newAction.tamamlanmaTarihi) newAction.tamamlanmaTarihi = bugunTarihiTR();
+    } else {
+      newAction.tamamlanmaTarihi = '';
+    }
     db.aksiyonlar = db.aksiyonlar || [];
 
     db.aksiyonlar.push(newAction);
@@ -2226,6 +2248,19 @@ app.put(
       };
 
       const guncelAksiyon = db.aksiyonlar[idx];
+
+      // Tamamlanma tarihi: durum Tamamlandi olunca (tarih bos ise) bugun
+      // yazilir; tekrar acilir veya iptal edilirse temizlenir. Bu kural,
+      // aksiyonu Ozet'ten (arizali ekipman detayi vb.) kapatan istekler icin de gecerlidir.
+      if ('durum' in req.body) {
+        if (guncelAksiyon.durum === 'Tamamlandı') {
+          if (!guncelAksiyon.tamamlanmaTarihi) {
+            guncelAksiyon.tamamlanmaTarihi = bugunTarihiTR();
+          }
+        } else {
+          guncelAksiyon.tamamlanmaTarihi = '';
+        }
+      }
 
       // Bu aksiyon bir ASD/Sapma kaydindan otomatik acilmis olabilir
       // (bkz. POST /api/data/kalite/.../:day). Oyle ise, kapatma nedeni

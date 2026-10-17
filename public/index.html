@@ -120,11 +120,24 @@
       <div class="ozet-details-body">
         <form id="actionForm" class="action-form">
           <div class="form-row">
-            <label>Aksiyon Başlığı
-              <input type="text" id="actBaslik" required>
+            <label>Açılış Tarihi
+              <input type="date" id="actBaslangic" required>
             </label>
-            <label>Aksiyon Sahibi
-              <select id="actSahibi"></select>
+            <label>Konu
+              <input type="text" id="actKonu" required placeholder="örn. Kalibrasyon, Hammadde, Cihaz bakımı">
+            </label>
+            <label>Aksiyon Sorumlusu
+              <select id="actSahibi" required></select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label class="full-width">Aksiyon / Eylem
+              <textarea id="actBaslik" rows="2" required placeholder="Yapılacak aksiyonu / eylemi yazın"></textarea>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Termin Tarihi
+              <input type="date" id="actBitis">
             </label>
             <label>Durum
               <select id="actDurum">
@@ -133,18 +146,8 @@
                 <option value="İptal">İptal</option>
               </select>
             </label>
-          </div>
-          <div class="form-row">
-            <label>Başlangıç Tarihi
-              <input type="date" id="actBaslangic" required>
-            </label>
-            <label>Bitiş Tarihi
-              <input type="date" id="actBitis">
-            </label>
-          </div>
-          <div class="form-row">
-            <label class="full-width">Alınan Aksiyon / Açıklama
-              <textarea id="actAciklama" rows="2"></textarea>
+            <label>Tamamlanma Tarihi
+              <input type="date" id="actTamamlanma" disabled>
             </label>
           </div>
           <div class="form-row" id="actKapatmaNedeniRow" style="display:none;">
@@ -158,11 +161,12 @@
         <table class="actions-table">
           <thead>
             <tr>
-              <th>Aksiyon</th>
-              <th>Açıklama</th>
-              <th>Sahibi</th>
-              <th>Başlangıç</th>
-              <th>Bitiş</th>
+              <th>Açılış Tarihi</th>
+              <th>Konu</th>
+              <th>Aksiyon / Eylem</th>
+              <th>Aksiyon Sorumlusu</th>
+              <th>Termin Tarihi</th>
+              <th>Tamamlanma Tarihi</th>
               <th>Durum</th>
               <th>İşlem</th>
             </tr>
@@ -175,7 +179,7 @@
           <div class="ozet-details-body">
             <div class="asd-sapma-filtre" style="margin-bottom:12px;">
               <div class="form-row">
-                <label>Ara (aksiyon, açıklama, kapatma nedeni)
+                <label>Ara (konu, aksiyon/eylem, kapatma nedeni)
                   <input type="text" id="kapaliFiltreArama" placeholder="örn. terazi">
                 </label>
                 <label>Durum
@@ -200,16 +204,17 @@
                   <button type="button" class="btn-secondary" id="kapaliFiltreTemizle">Filtreyi Temizle</button>
                 </label>
               </div>
-              <div class="category-hedef" style="margin:4px 0 0 0;padding:0;border:none;">Tarih filtresi, aksiyonun bitiş tarihine (yoksa başlangıç tarihine) göre çalışır.</div>
+              <div class="category-hedef" style="margin:4px 0 0 0;padding:0;border:none;">Tarih filtresi, aksiyonun tamamlanma tarihine (yoksa termin, o da yoksa açılış tarihine) göre çalışır.</div>
             </div>
             <table class="actions-table">
               <thead>
                 <tr>
-                  <th>Aksiyon</th>
-                  <th>Açıklama</th>
-                  <th>Sahibi</th>
-                  <th>Başlangıç</th>
-                  <th>Bitiş</th>
+                  <th>Açılış Tarihi</th>
+                  <th>Konu</th>
+                  <th>Aksiyon / Eylem</th>
+                  <th>Aksiyon Sorumlusu</th>
+                  <th>Termin Tarihi</th>
+                  <th>Tamamlanma Tarihi</th>
                   <th>Durum</th>
                   <th>Kapatma Nedeni</th>
                   <th>İşlem</th>
